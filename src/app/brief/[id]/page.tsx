@@ -4,13 +4,11 @@ import { useEffect, useState, use } from 'react'
 import { Chamber } from '@/components/cabinet/Chamber'
 import { Seat, SeatState, VoteType } from '@/components/cabinet/Seat'
 import { Podium } from '@/components/cabinet/Podium'
-import { Loader2, LayoutGrid, CircleDot } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { motion, AnimatePresence } from 'framer-motion'
 
 export const dynamic = 'force-dynamic'
-
-type LayoutMode = 'circle' | 'grid'
 
 export default function BriefDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -21,7 +19,6 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
   const [isProcessing, setIsProcessing] = useState(false)
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
-  const [layout, setLayout] = useState<LayoutMode>('circle')
   const supabase = createClient()
 
   useEffect(() => {
@@ -109,16 +106,6 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
     return responses.find(r => r.cabinet_member_id === ministerId)
   }
 
-  // Calculate circular positions
-  const getCircularPosition = (index: number, total: number) => {
-    const angle = (-90 + (index * 360 / total)) * (Math.PI / 180)
-    const radius = 260
-    return {
-      x: radius * Math.cos(angle),
-      y: radius * Math.sin(angle)
-    }
-  }
-
   return (
     <Chamber
       title={brief.title}
@@ -127,118 +114,33 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       userEmail={user?.email}
       userName={profile?.display_name}
     >
-      {/* Layout Toggle */}
-      <div className="flex justify-center mb-8">
-        <div className="inline-flex items-center gap-1 p-1 bg-stone/50 rounded-lg border border-stone-dark">
-          <button
-            onClick={() => setLayout('circle')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md body-sans text-sm transition-all ${
-              layout === 'circle' 
-                ? 'bg-marble text-ink shadow-sm border border-stone-dark' 
-                : 'text-ink-muted hover:text-ink'
-            }`}
-          >
-            <CircleDot className="h-4 w-4" />
-            Round Table
-          </button>
-          <button
-            onClick={() => setLayout('grid')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md body-sans text-sm transition-all ${
-              layout === 'grid' 
-                ? 'bg-marble text-ink shadow-sm border border-stone-dark' 
-                : 'text-ink-muted hover:text-ink'
-            }`}
-          >
-            <LayoutGrid className="h-4 w-4" />
-            Grid View
-          </button>
-        </div>
+      {/* Ministers Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl mx-auto px-4">
+        {councilMembers.map((m, i) => {
+          const response = getResponse(m.id)
+          return (
+            <motion.div
+              key={m.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+            >
+              <Seat
+                name={m.name}
+                role={m.role}
+                state={getSeatState(m.id)}
+                vote={response?.vote as VoteType}
+                response={response?.response_text}
+                isOpposition={m.role === 'Skeptic'}
+                onClick={() => {}}
+              />
+            </motion.div>
+          )
+        })}
       </div>
 
-      {/* Grid Layout */}
-      {layout === 'grid' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl mx-auto px-4">
-          {councilMembers.map((m, i) => {
-            const response = getResponse(m.id)
-            return (
-              <motion.div
-                key={m.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-              >
-                <Seat
-                  name={m.name}
-                  role={m.role}
-                  state={getSeatState(m.id)}
-                  vote={response?.vote as VoteType}
-                  response={response?.response_text}
-                  isOpposition={m.role === 'Skeptic'}
-                  onClick={() => {}}
-                />
-              </motion.div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Circular Layout */}
-      {layout === 'circle' && (
-        <div className="w-full overflow-x-auto pb-4">
-          <div className="flex justify-center">
-            <div className="relative" style={{ width: '660px', height: '660px' }}>
-              {/* Central Table */}
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                <div className="w-36 h-36 rounded-full border-4 border-stone-dark bg-gradient-to-br from-stone to-stone-dark shadow-inner" />
-              </div>
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                <div className="w-28 h-28 rounded-full border border-stone bg-marble-warm" />
-              </div>
-              
-              {/* Center Label */}
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center text-center z-10">
-                <span className="heading-serif text-xs text-ink-muted">The</span>
-                <span className="heading-display text-base text-ink">Round Table</span>
-              </div>
-
-              {/* Ministers */}
-              {councilMembers.map((m, i) => {
-                const response = getResponse(m.id)
-                const { x, y } = getCircularPosition(i, councilMembers.length)
-
-                return (
-                  <motion.div
-                    key={m.id}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: i * 0.1, duration: 0.4 }}
-                    className="absolute"
-                    style={{
-                      width: '180px',
-                      left: '50%',
-                      top: '50%',
-                      transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
-                    }}
-                  >
-                    <Seat
-                      name={m.name}
-                      role={m.role}
-                      state={getSeatState(m.id)}
-                      vote={response?.vote as VoteType}
-                      response={response?.response_text}
-                      isOpposition={m.role === 'Skeptic'}
-                      onClick={() => {}}
-                    />
-                  </motion.div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Prime Minister's Podium */}
-      <div className="mt-8 px-4">
+      <div className="mt-12 px-4">
         <AnimatePresence>
           {pmData && (
             <motion.div
