@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 
 export type SeatState = 'idle' | 'speaking' | 'responded'
-export type VoteType = 'yay' | 'nay' | 'abstain' | null
+export type VoteType = 'yay' | 'nay' | 'abstain' | 'approve' | 'oppose' | null
 
 interface SeatProps {
   name: string
@@ -61,11 +61,11 @@ export function Seat({ name, role, state, vote, response, isOpposition, onClick 
           {vote && (
             <div className={cn(
               'inline-block px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider',
-              vote === 'yay' && 'bg-green-100 text-green-800',
-              vote === 'nay' && 'bg-wine/10 text-wine',
+              (vote === 'yay' || vote === 'approve') && 'bg-green-100 text-green-800',
+              (vote === 'nay' || vote === 'oppose') && 'bg-wine/10 text-wine',
               vote === 'abstain' && 'bg-stone text-ink-muted'
             )}>
-              {vote}
+              {vote === 'yay' ? 'approve' : vote === 'nay' ? 'oppose' : vote}
             </div>
           )}
         </div>
