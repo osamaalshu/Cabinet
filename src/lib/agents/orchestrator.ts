@@ -45,7 +45,7 @@ export async function runMinister(minister: Minister, context: BriefContext) {
       ],
       temperature: minister.temperature,
       response_format: { type: 'json_object' },
-    })
+    }, { timeout: 7000 }) // Fail fast to avoid Netlify 10s timeout
 
     const content = response.choices[0].message.content
     if (!content) throw new Error('No content returned from OpenAI')
@@ -87,15 +87,15 @@ export async function runPrimeMinister(
     2. "options": An array of objects, each with "title", "description", and "tradeoffs".
   `
 
-  const response = await openai.chat.completions.create({
-    model: pmMinister.model_name,
-    messages: [
-      { role: 'system', content: pmMinister.system_prompt },
-      { role: 'user', content: prompt },
-    ],
-    temperature: pmMinister.temperature,
-    response_format: { type: 'json_object' },
-  })
+    const response = await openai.chat.completions.create({
+      model: pmMinister.model_name,
+      messages: [
+        { role: 'system', content: pmMinister.system_prompt },
+        { role: 'user', content: prompt },
+      ],
+      temperature: pmMinister.temperature,
+      response_format: { type: 'json_object' },
+    }, { timeout: 7000 })
 
   const content = response.choices[0].message.content
   if (!content) throw new Error('No content returned from OpenAI')
