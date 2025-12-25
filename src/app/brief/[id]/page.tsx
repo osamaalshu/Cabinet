@@ -116,27 +116,50 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       userName={profile?.display_name}
     >
       {/* The Round Table */}
-      <div className="relative flex items-center justify-center py-8">
-        {/* Central Table Surface */}
-        <div className="absolute w-48 h-48 md:w-64 md:h-64 rounded-full border-4 border-stone-dark bg-gradient-to-br from-stone to-stone-dark shadow-inner" />
-        <div className="absolute w-40 h-40 md:w-56 md:h-56 rounded-full border border-stone bg-marble-warm" />
-        
-        {/* Center Label */}
-        <div className="absolute flex flex-col items-center justify-center text-center z-10">
-          <span className="heading-serif text-lg text-ink-muted">The</span>
-          <span className="heading-display text-2xl text-ink">Round Table</span>
-        </div>
+      <div className="relative w-full flex justify-center py-8">
+        <div className="relative" style={{ width: '800px', height: '700px' }}>
+          {/* Central Table Surface - positioned in exact center */}
+          <div 
+            className="absolute rounded-full border-4 border-stone-dark bg-gradient-to-br from-stone to-stone-dark shadow-inner"
+            style={{ 
+              width: '200px', 
+              height: '200px', 
+              left: '50%', 
+              top: '50%', 
+              transform: 'translate(-50%, -50%)' 
+            }} 
+          />
+          <div 
+            className="absolute rounded-full border border-stone bg-marble-warm"
+            style={{ 
+              width: '170px', 
+              height: '170px', 
+              left: '50%', 
+              top: '50%', 
+              transform: 'translate(-50%, -50%)' 
+            }} 
+          />
+          
+          {/* Center Label */}
+          <div 
+            className="absolute flex flex-col items-center justify-center text-center z-10"
+            style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}
+          >
+            <span className="heading-serif text-lg text-ink-muted">The</span>
+            <span className="heading-display text-2xl text-ink">Round Table</span>
+          </div>
 
-        {/* Ministers arranged in a circle */}
-        <div className="relative w-[700px] h-[700px] md:w-[850px] md:h-[850px]">
+          {/* Ministers arranged in a circle */}
           {councilMembers.map((m, i) => {
             const response = getResponse(m.id)
             const total = councilMembers.length
             // Start from top (-90deg) and distribute evenly
             const angle = (-90 + (i * 360 / total)) * (Math.PI / 180)
-            const radius = 42 // percentage from center
-            const x = 50 + radius * Math.cos(angle)
-            const y = 50 + radius * Math.sin(angle)
+            const radius = 280 // pixels from center
+            const centerX = 400 // half of container width
+            const centerY = 350 // half of container height
+            const x = centerX + radius * Math.cos(angle)
+            const y = centerY + radius * Math.sin(angle)
             const isOpposition = m.role === 'Skeptic'
 
             return (
@@ -145,10 +168,10 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: i * 0.1, duration: 0.4 }}
-                className="absolute w-56 md:w-64"
+                className="absolute w-56"
                 style={{
-                  left: `${x}%`,
-                  top: `${y}%`,
+                  left: `${x}px`,
+                  top: `${y}px`,
                   transform: 'translate(-50%, -50%)',
                 }}
               >
