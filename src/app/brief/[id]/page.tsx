@@ -70,7 +70,8 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
 
-  const addToTranscript = useCallback((msg: DiscussionMessage) => {
+  const addToTranscript = useCallback((msg: DiscussionMessage | null | undefined) => {
+    if (!msg) return // Ignore null/undefined messages
     setTranscript(prev => [...prev, msg])
     setTimeout(scrollToBottom, 100)
   }, [scrollToBottom])
@@ -109,7 +110,8 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
       setBrief(briefData)
       setMinisters(members || [])
       setResponses(briefData.brief_responses || [])
-      setTranscript(messages || [])
+      // Filter out any null/undefined messages
+      setTranscript((messages || []).filter(m => m !== null && m !== undefined))
 
       // Initialize ratings
       const initialRatings: Record<string, number> = {}
@@ -561,7 +563,7 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
 
           {hasTranscript && (
             <div className="space-y-3">
-              {transcript.map((msg) => (
+              {transcript.filter(msg => msg !== null && msg !== undefined).map((msg) => (
                 <TranscriptMessage 
                   key={msg.id} 
                   message={msg} 
