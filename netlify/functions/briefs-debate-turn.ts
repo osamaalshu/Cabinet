@@ -159,16 +159,20 @@ Respond as JSON:
 }`
     }
 
-    // Call OpenAI
+    // Call OpenAI - use max_completion_tokens for newer models (gpt-5 series)
+    const maxTokens = turn_type === 'synthesis' ? 500 : turn_type === 'opening' ? 300 : 150
+    const modelName = minister.model_name || 'gpt-5-nano'
+    const isNewModel = modelName.startsWith('gpt-5') || modelName.startsWith('o1') || modelName.startsWith('o3')
+    
     const response = await openai.chat.completions.create({
-      model: minister.model_name || 'gpt-4o-mini',
+      model: modelName,
       messages: [
         { role: 'system', content: minister.system_prompt + '\nBe concise and direct. No filler words.' },
         { role: 'user', content: prompt },
       ],
       temperature: minister.temperature,
       response_format: { type: 'json_object' },
-      max_tokens: turn_type === 'synthesis' ? 500 : turn_type === 'opening' ? 300 : 150,
+      ...(isNewModel ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
     }, { timeout: 8000 })
 
     const result = JSON.parse(response.choices[0].message.content || '{}')
