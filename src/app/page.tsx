@@ -9,7 +9,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <Navbar />
+      <Navbar userEmail={user.email} />
       <main className="container mx-auto px-4 py-12">
         <div className="mb-8 flex items-center justify-between">
           <div>
