@@ -67,7 +67,7 @@ export default function NewBriefPage() {
       })
 
       const { brief_id } = await createRes.json()
-      router.push(`/brief/${brief_id}`)
+      router.push(`/brief/${brief_id}?autostart=true`)
     } catch (error: any) {
       console.error(error)
       alert(`Error: ${error.message}`)

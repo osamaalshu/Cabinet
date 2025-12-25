@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState, use, useCallback, useRef } from 'react'
+import { useEffect, useState, use, useCallback, useRef, Suspense } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Chamber } from '@/components/cabinet/Chamber'
 import { Seat, SeatState, VoteType } from '@/components/cabinet/Seat'
 import { Podium } from '@/components/cabinet/Podium'
-import { Loader2, MessageSquare, Users, Play, Send, Star, AlertTriangle } from 'lucide-react'
+import { Loader2, MessageSquare, Users, Play, Send, Star, AlertTriangle, Clock, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -35,8 +36,13 @@ interface Minister {
 
 type ViewMode = 'grid' | 'transcript'
 
-export default function BriefDetailPage({ params }: { params: Promise<{ id: string }> }) {
+// 2 minute timeout for debates (120 seconds)
+const DEBATE_TIMEOUT_MS = 2 * 60 * 1000
+
+function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [brief, setBrief] = useState<any>(null)
   const [ministers, setMinisters] = useState<Minister[]>([])
   const [responses, setResponses] = useState<any[]>([])
@@ -51,8 +57,14 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
   const [pendingInterjection, setPendingInterjection] = useState<string | null>(null)
   const [showRating, setShowRating] = useState(false)
   const [ratings, setRatings] = useState<Record<string, number>>({})
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null)
+  const [debateTimedOut, setDebateTimedOut] = useState(false)
   const supabase = createClient()
   const transcriptEndRef = useRef<HTMLDivElement>(null)
+  const debateStartTimeRef = useRef<number | null>(null)
+  const debateExtendedRef = useRef<boolean>(false)
+  const autoStartTriggered = useRef<boolean>(false)
+  const startDebateRef = useRef<(() => void) | null>(null)
 
   const scrollToBottom = useCallback(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -108,15 +120,48 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
     initSession()
   }, [id, supabase])
 
-  // Submit interjection
+  // Auto-start debate if coming from new brief creation
+  useEffect(() => {
+    const shouldAutoStart = searchParams.get('autostart') === 'true'
+    if (
+      shouldAutoStart && 
+      !autoStartTriggered.current && 
+      brief && 
+      ministers.length > 0 && 
+      user &&
+      brief.status === 'queued' &&
+      transcript.length === 0 &&
+      startDebateRef.current
+    ) {
+      autoStartTriggered.current = true
+      // Remove the autostart param from URL to prevent re-triggering
+      router.replace(`/brief/${id}`, { scroll: false })
+      // Start the debate
+      startDebateRef.current()
+    }
+  }, [searchParams, brief, ministers, user, transcript, id, router])
+
+  // Extend debate by another 2 minutes
+  const extendDebate = () => {
+    debateStartTimeRef.current = Date.now()
+    debateExtendedRef.current = true
+    setTimeRemaining(DEBATE_TIMEOUT_MS / 1000)
+    setDebateTimedOut(false)
+  }
+
+  // Submit interjection - extends debate timeout
   const submitInterjection = () => {
     if (!interjection.trim()) return
     setPendingInterjection(interjection)
-    setInterjection('')
     
-    // Add to transcript as user message
+    // Extend the debate timer when user interjects
+    debateExtendedRef.current = true
+    debateStartTimeRef.current = Date.now()
+    setTimeRemaining(DEBATE_TIMEOUT_MS / 1000)
+    
+    // Add to local transcript as user message (not persisted to DB)
     const userMsg: DiscussionMessage = {
-      id: `user-${Date.now()}`,
+      id: `local-user-${Date.now()}`,
       brief_id: id,
       turn_index: transcript.length,
       speaker_member_id: null,
@@ -127,7 +172,14 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       created_at: new Date().toISOString(),
     }
     addToTranscript(userMsg)
-    supabase.from('discussion_messages').insert(userMsg)
+    setInterjection('')
+  }
+
+  // Check if debate should timeout
+  const checkDebateTimeout = (): boolean => {
+    if (!debateStartTimeRef.current) return false
+    const elapsed = Date.now() - debateStartTimeRef.current
+    return elapsed >= DEBATE_TIMEOUT_MS
   }
 
   // Run a single debate turn
@@ -165,7 +217,7 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
     return res.json()
   }
 
-  // Start full debate
+  // Start full debate with 2-minute timeout
   const startDebate = async () => {
     if (!user) return
     
@@ -174,6 +226,19 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
 
     setIsProcessing(true)
     setViewMode('transcript')
+    debateStartTimeRef.current = Date.now()
+    debateExtendedRef.current = false
+    setTimeRemaining(DEBATE_TIMEOUT_MS / 1000)
+    
+    // Start countdown timer
+    const timerInterval = setInterval(() => {
+      if (debateStartTimeRef.current) {
+        const elapsed = Date.now() - debateStartTimeRef.current
+        const remaining = Math.max(0, Math.ceil((DEBATE_TIMEOUT_MS - elapsed) / 1000))
+        setTimeRemaining(remaining)
+      }
+    }, 1000)
+    
     await supabase.from('briefs').update({ status: 'running' }).eq('id', id)
 
     const regularMinisters = ministers.filter(m => m.role !== 'Synthesizer')
@@ -182,9 +247,23 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
     
     let turnIndex = 0
     const openingStatements: { minister: Minister; content: string; vote?: string }[] = []
+    let timedOut = false
+
+    const finishDebate = async (reason: 'completed' | 'timeout') => {
+      clearInterval(timerInterval)
+      debateStartTimeRef.current = null
+      
+      if (reason === 'timeout') {
+        setDebateTimedOut(true)
+        setTimeRemaining(0)
+        addSystemMessage('⏱️ Debate time limit reached. Click "Continue Debate" or proceeding to synthesis.', turnIndex++)
+      } else {
+        setTimeRemaining(null)
+      }
+    }
 
     try {
-      // ROUND 1: Opening Statements
+      // ROUND 1: Opening Statements (always runs)
       setCurrentPhase('Opening Statements')
       addSystemMessage('📢 Cabinet session begins. Ministers present opening statements.', turnIndex++)
 
@@ -200,12 +279,23 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
         }])
       }
 
-      // ROUND 2: Rebuttals
-      if (regularMinisters.length > 1) {
+      // Check timeout before rebuttals
+      if (checkDebateTimeout()) {
+        timedOut = true
+        await finishDebate('timeout')
+      }
+
+      // ROUND 2: Rebuttals (if time remains)
+      if (!timedOut && regularMinisters.length > 1) {
         setCurrentPhase('Rebuttals')
         addSystemMessage('🔄 Rebuttal round. Ministers respond to each other.', turnIndex++)
 
         for (const minister of regularMinisters) {
+          if (checkDebateTimeout()) {
+            timedOut = true
+            await finishDebate('timeout')
+            break
+          }
           setActiveMinisterId(minister.id)
           const othersStatements = openingStatements
             .filter(s => s.minister.id !== minister.id)
@@ -217,32 +307,49 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
         }
       }
 
-      // ROUND 3: Cross-Examination (Opposition Leader)
-      if (oppositionLeader) {
-        setCurrentPhase('Cross-Examination')
-        addSystemMessage('⚔️ Opposition Leader cross-examines the Cabinet.', turnIndex++)
-        
-        setActiveMinisterId(oppositionLeader.id)
-        const allStatements = openingStatements.map(s => `${s.minister.name}: ${s.content}`).join('\n\n')
-        const result = await runTurn(session.access_token, oppositionLeader.id, 'cross_exam', turnIndex++, allStatements)
-        addToTranscript(result.message)
+      // ROUND 3: Cross-Examination (if time remains)
+      if (!timedOut && oppositionLeader) {
+        if (checkDebateTimeout()) {
+          timedOut = true
+          await finishDebate('timeout')
+        } else {
+          setCurrentPhase('Cross-Examination')
+          addSystemMessage('⚔️ Opposition Leader cross-examines the Cabinet.', turnIndex++)
+          
+          setActiveMinisterId(oppositionLeader.id)
+          const allStatements = openingStatements.map(s => `${s.minister.name}: ${s.content}`).join('\n\n')
+          const result = await runTurn(session.access_token, oppositionLeader.id, 'cross_exam', turnIndex++, allStatements)
+          addToTranscript(result.message)
+        }
       }
 
-      // ROUND 4: Closing Statements
-      setCurrentPhase('Closing Statements')
-      addSystemMessage('📝 Final positions from each minister.', turnIndex++)
+      // ROUND 4: Closing Statements (skipped if timeout)
+      if (!timedOut) {
+        if (checkDebateTimeout()) {
+          timedOut = true
+          await finishDebate('timeout')
+        } else {
+          setCurrentPhase('Closing Statements')
+          addSystemMessage('📝 Final positions from each minister.', turnIndex++)
 
-      for (const minister of regularMinisters.filter(m => m.role !== 'Skeptic')) {
-        setActiveMinisterId(minister.id)
-        const fullDiscussion = transcript.filter(t => t.message_type !== 'system').map(t => 
-          `${getMemberName(t.speaker_member_id)}: ${t.content}`
-        ).join('\n\n')
-        
-        const result = await runTurn(session.access_token, minister.id, 'closing', turnIndex++, fullDiscussion)
-        addToTranscript(result.message)
+          for (const minister of regularMinisters.filter(m => m.role !== 'Skeptic')) {
+            if (checkDebateTimeout()) {
+              timedOut = true
+              await finishDebate('timeout')
+              break
+            }
+            setActiveMinisterId(minister.id)
+            const fullDiscussion = transcript.filter(t => t.message_type !== 'system').map(t => 
+              `${getMemberName(t.speaker_member_id)}: ${t.content}`
+            ).join('\n\n')
+            
+            const result = await runTurn(session.access_token, minister.id, 'closing', turnIndex++, fullDiscussion)
+            addToTranscript(result.message)
+          }
+        }
       }
 
-      // ROUND 5: PM Synthesis
+      // ROUND 5: PM Synthesis (always runs even if timed out)
       if (pmMinister) {
         setCurrentPhase('Prime Minister Synthesis')
         addSystemMessage('👑 The Prime Minister synthesizes the debate.', turnIndex++)
@@ -265,6 +372,10 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
         }
       }
 
+      if (!timedOut) {
+        await finishDebate('completed')
+      }
+
       // Done - show rating UI
       await supabase.from('briefs').update({ status: 'done' }).eq('id', id)
       setBrief((prev: any) => ({ ...prev, status: 'done' }))
@@ -273,16 +384,23 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
     } catch (error: any) {
       console.error('Debate error:', error)
       alert('Error: ' + error.message)
+      clearInterval(timerInterval)
     } finally {
       setIsProcessing(false)
       setActiveMinisterId(null)
       setCurrentPhase('')
+      setTimeRemaining(null)
+      setDebateTimedOut(false)
     }
   }
 
-  const addSystemMessage = async (content: string, turnIndex: number) => {
+  // Store startDebate in ref for auto-start
+  startDebateRef.current = startDebate
+
+  // Add system message (local only, not persisted to DB)
+  const addSystemMessage = (content: string, turnIndex: number) => {
     const msg: DiscussionMessage = {
-      id: `sys-${Date.now()}`,
+      id: `local-sys-${Date.now()}-${turnIndex}`,
       brief_id: id,
       turn_index: turnIndex,
       speaker_member_id: null,
@@ -293,7 +411,6 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       created_at: new Date().toISOString(),
     }
     addToTranscript(msg)
-    await supabase.from('discussion_messages').insert(msg)
   }
 
   const getMemberName = (memberId: string | null) => {
@@ -396,16 +513,40 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
           </button>
         </div>
 
-        {canStartDebate && (
-          <button
-            onClick={startDebate}
-            disabled={isProcessing}
-            className="inline-flex items-center gap-2 px-6 py-2 bg-wine text-white rounded-lg body-sans font-medium hover:bg-wine-light transition-colors disabled:opacity-50"
-          >
-            {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            {isProcessing ? 'Running...' : 'Start Debate'}
-          </button>
-        )}
+        <div className="flex items-center gap-4">
+          {/* Timer display */}
+          {isProcessing && timeRemaining !== null && (
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-full body-sans text-sm ${
+              timeRemaining < 30 ? 'bg-wine/20 text-wine' : 'bg-stone text-ink-muted'
+            }`}>
+              <Clock className="h-4 w-4" />
+              <span>{Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, '0')}</span>
+              {timeRemaining < 30 && !debateTimedOut && <span className="text-xs">(add input to extend)</span>}
+            </div>
+          )}
+
+          {/* Continue Debate button - shown when timed out but still processing */}
+          {debateTimedOut && isProcessing && (
+            <button
+              onClick={extendDebate}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-gold text-white rounded-lg body-sans font-medium hover:bg-gold/90 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              Continue (+2 min)
+            </button>
+          )}
+
+          {canStartDebate && (
+            <button
+              onClick={startDebate}
+              disabled={isProcessing}
+              className="inline-flex items-center gap-2 px-6 py-2 bg-wine text-white rounded-lg body-sans font-medium hover:bg-wine-light transition-colors disabled:opacity-50"
+            >
+              {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              {isProcessing ? 'Running...' : 'Start Debate'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Transcript View */}
@@ -657,5 +798,23 @@ function TranscriptMessage({ message, memberName, isActive }: {
       </div>
       <p className="body-sans text-sm text-ink-muted">{displayContent}</p>
     </motion.div>
+  )
+}
+
+// Fallback for Suspense
+function BriefPageFallback() {
+  return (
+    <div className="min-h-screen bg-marble flex items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-ink-muted" />
+    </div>
+  )
+}
+
+// Export with Suspense wrapper for useSearchParams
+export default function BriefDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  return (
+    <Suspense fallback={<BriefPageFallback />}>
+      <BriefDetailPageContent params={params} />
+    </Suspense>
   )
 }
