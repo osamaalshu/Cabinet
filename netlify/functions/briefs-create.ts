@@ -16,7 +16,7 @@ export const handler = async (event: any) => {
 
     const { data: brief, error: briefError } = await supabase
       .from('briefs')
-      .insert({ user_id: user.id, title, input_context, status: 'running' })
+      .insert({ user_id: user.id, title, input_context, status: 'queued' })
       .select().single()
 
     if (briefError) throw briefError
