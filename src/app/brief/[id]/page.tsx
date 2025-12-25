@@ -4,7 +4,7 @@ import { useEffect, useState, use, useCallback, useRef } from 'react'
 import { Chamber } from '@/components/cabinet/Chamber'
 import { Seat, SeatState, VoteType } from '@/components/cabinet/Seat'
 import { Podium } from '@/components/cabinet/Podium'
-import { Loader2, MessageSquare, Users, Play } from 'lucide-react'
+import { Loader2, MessageSquare, Users, Play, Send, Star, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -16,7 +16,7 @@ interface DiscussionMessage {
   turn_index: number
   speaker_member_id: string | null
   speaker_role: string
-  message_type: 'opening' | 'rebuttal' | 'cross_exam' | 'synthesis' | 'vote' | 'system'
+  message_type: string
   content: string
   metadata: Record<string, any>
   created_at: string
@@ -27,6 +27,10 @@ interface Minister {
   name: string
   role: string
   model_name: string
+  status?: string
+  total_rating_count?: number
+  total_rating_sum?: number
+  warnings?: number
 }
 
 type ViewMode = 'grid' | 'transcript'
@@ -43,6 +47,10 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('transcript')
+  const [interjection, setInterjection] = useState('')
+  const [pendingInterjection, setPendingInterjection] = useState<string | null>(null)
+  const [showRating, setShowRating] = useState(false)
+  const [ratings, setRatings] = useState<Record<string, number>>({})
   const supabase = createClient()
   const transcriptEndRef = useRef<HTMLDivElement>(null)
 
@@ -76,9 +84,9 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
         .select('*')
         .eq('user_id', briefData.user_id)
         .eq('is_enabled', true)
+        .neq('status', 'suspended')
         .order('seat_index')
 
-      // Load existing transcript
       const { data: messages } = await supabase
         .from('discussion_messages')
         .select('*')
@@ -90,10 +98,37 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       setMinisters(members || [])
       setResponses(briefData.brief_responses || [])
       setTranscript(messages || [])
+
+      // Initialize ratings
+      const initialRatings: Record<string, number> = {}
+      members?.forEach(m => { initialRatings[m.id] = 3 })
+      setRatings(initialRatings)
     }
 
     initSession()
   }, [id, supabase])
+
+  // Submit interjection
+  const submitInterjection = () => {
+    if (!interjection.trim()) return
+    setPendingInterjection(interjection)
+    setInterjection('')
+    
+    // Add to transcript as user message
+    const userMsg: DiscussionMessage = {
+      id: `user-${Date.now()}`,
+      brief_id: id,
+      turn_index: transcript.length,
+      speaker_member_id: null,
+      speaker_role: 'user',
+      message_type: 'interjection',
+      content: interjection,
+      metadata: {},
+      created_at: new Date().toISOString(),
+    }
+    addToTranscript(userMsg)
+    supabase.from('discussion_messages').insert(userMsg)
+  }
 
   // Run a single debate turn
   const runTurn = async (
@@ -115,8 +150,12 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
         turn_type: turnType,
         turn_index: turnIndex,
         previous_statements: previousStatements,
+        user_interjection: pendingInterjection,
       }),
     })
+
+    // Clear interjection after use
+    if (pendingInterjection) setPendingInterjection(null)
 
     if (!res.ok) {
       const error = await res.json()
@@ -126,7 +165,7 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
     return res.json()
   }
 
-  // Start full debate - client orchestrates, server handles each turn
+  // Start full debate
   const startDebate = async () => {
     if (!user) return
     
@@ -135,46 +174,24 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
 
     setIsProcessing(true)
     setViewMode('transcript')
-
-    // Update brief status
     await supabase.from('briefs').update({ status: 'running' }).eq('id', id)
 
     const regularMinisters = ministers.filter(m => m.role !== 'Synthesizer')
     const pmMinister = ministers.find(m => m.role === 'Synthesizer')
+    const oppositionLeader = ministers.find(m => m.role === 'Skeptic')
     
     let turnIndex = 0
     const openingStatements: { minister: Minister; content: string; vote?: string }[] = []
 
     try {
-      // System message: Opening
+      // ROUND 1: Opening Statements
       setCurrentPhase('Opening Statements')
-      const systemMsg: DiscussionMessage = {
-        id: `sys-${Date.now()}`,
-        brief_id: id,
-        turn_index: turnIndex++,
-        speaker_member_id: null,
-        speaker_role: 'system',
-        message_type: 'system',
-        content: '📢 The Cabinet session begins. Ministers will present their opening statements.',
-        metadata: { phase: 'opening' },
-        created_at: new Date().toISOString(),
-      }
-      addToTranscript(systemMsg)
-      await supabase.from('discussion_messages').insert(systemMsg)
+      addSystemMessage('📢 Cabinet session begins. Ministers present opening statements.', turnIndex++)
 
-      // ROUND 1: Opening Statements (sequential for live effect)
       for (const minister of regularMinisters) {
         setActiveMinisterId(minister.id)
-        
         const result = await runTurn(session.access_token, minister.id, 'opening', turnIndex++)
-        
-        openingStatements.push({ 
-          minister, 
-          content: result.content, 
-          vote: result.vote 
-        })
-
-        // Add to local transcript
+        openingStatements.push({ minister, content: result.content, vote: result.vote })
         addToTranscript(result.message)
         setResponses(prev => [...prev, {
           cabinet_member_id: minister.id,
@@ -183,80 +200,59 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
         }])
       }
 
-      // ROUND 2: Rebuttals (if more than 2 ministers)
-      if (regularMinisters.length > 2) {
+      // ROUND 2: Rebuttals
+      if (regularMinisters.length > 1) {
         setCurrentPhase('Rebuttals')
-        
-        const rebuttalSystemMsg: DiscussionMessage = {
-          id: `sys-rebuttal-${Date.now()}`,
-          brief_id: id,
-          turn_index: turnIndex++,
-          speaker_member_id: null,
-          speaker_role: 'system',
-          message_type: 'system',
-          content: '🔄 Rebuttal round. Ministers respond to their colleagues.',
-          metadata: { phase: 'rebuttal' },
-          created_at: new Date().toISOString(),
-        }
-        addToTranscript(rebuttalSystemMsg)
-        await supabase.from('discussion_messages').insert(rebuttalSystemMsg)
-
-        const allStatements = openingStatements
-          .map(s => `${s.minister.name}: ${s.content}`)
-          .join('\n\n')
+        addSystemMessage('🔄 Rebuttal round. Ministers respond to each other.', turnIndex++)
 
         for (const minister of regularMinisters) {
           setActiveMinisterId(minister.id)
-          
           const othersStatements = openingStatements
             .filter(s => s.minister.id !== minister.id)
             .map(s => `${s.minister.name}: ${s.content}`)
             .join('\n\n')
 
-          const result = await runTurn(
-            session.access_token, 
-            minister.id, 
-            'rebuttal', 
-            turnIndex++,
-            othersStatements
-          )
-
+          const result = await runTurn(session.access_token, minister.id, 'rebuttal', turnIndex++, othersStatements)
           addToTranscript(result.message)
         }
       }
 
-      // ROUND 3: PM Synthesis
+      // ROUND 3: Cross-Examination (Opposition Leader)
+      if (oppositionLeader) {
+        setCurrentPhase('Cross-Examination')
+        addSystemMessage('⚔️ Opposition Leader cross-examines the Cabinet.', turnIndex++)
+        
+        setActiveMinisterId(oppositionLeader.id)
+        const allStatements = openingStatements.map(s => `${s.minister.name}: ${s.content}`).join('\n\n')
+        const result = await runTurn(session.access_token, oppositionLeader.id, 'cross_exam', turnIndex++, allStatements)
+        addToTranscript(result.message)
+      }
+
+      // ROUND 4: Closing Statements
+      setCurrentPhase('Closing Statements')
+      addSystemMessage('📝 Final positions from each minister.', turnIndex++)
+
+      for (const minister of regularMinisters.filter(m => m.role !== 'Skeptic')) {
+        setActiveMinisterId(minister.id)
+        const fullDiscussion = transcript.filter(t => t.message_type !== 'system').map(t => 
+          `${getMemberName(t.speaker_member_id)}: ${t.content}`
+        ).join('\n\n')
+        
+        const result = await runTurn(session.access_token, minister.id, 'closing', turnIndex++, fullDiscussion)
+        addToTranscript(result.message)
+      }
+
+      // ROUND 5: PM Synthesis
       if (pmMinister) {
         setCurrentPhase('Prime Minister Synthesis')
-        
-        const synthSystemMsg: DiscussionMessage = {
-          id: `sys-synth-${Date.now()}`,
-          brief_id: id,
-          turn_index: turnIndex++,
-          speaker_member_id: null,
-          speaker_role: 'system',
-          message_type: 'system',
-          content: '👑 The Prime Minister will now synthesize the discussion.',
-          metadata: { phase: 'synthesis' },
-          created_at: new Date().toISOString(),
-        }
-        addToTranscript(synthSystemMsg)
-        await supabase.from('discussion_messages').insert(synthSystemMsg)
+        addSystemMessage('👑 The Prime Minister synthesizes the debate.', turnIndex++)
 
         setActiveMinisterId(pmMinister.id)
-
         const fullTranscript = openingStatements
           .map(s => `${s.minister.name} (${s.vote}): ${s.content}`)
           .join('\n\n')
 
-        const result = await runTurn(
-          session.access_token,
-          pmMinister.id,
-          'synthesis',
-          turnIndex++,
-          fullTranscript
-        )
-
+        const result = await runTurn(session.access_token, pmMinister.id, 'synthesis', turnIndex++, fullTranscript)
         addToTranscript(result.message)
         
         if (result.synthesis) {
@@ -269,9 +265,10 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
         }
       }
 
-      // Done
+      // Done - show rating UI
       await supabase.from('briefs').update({ status: 'done' }).eq('id', id)
       setBrief((prev: any) => ({ ...prev, status: 'done' }))
+      setShowRating(true)
 
     } catch (error: any) {
       console.error('Debate error:', error)
@@ -280,6 +277,65 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       setIsProcessing(false)
       setActiveMinisterId(null)
       setCurrentPhase('')
+    }
+  }
+
+  const addSystemMessage = async (content: string, turnIndex: number) => {
+    const msg: DiscussionMessage = {
+      id: `sys-${Date.now()}`,
+      brief_id: id,
+      turn_index: turnIndex,
+      speaker_member_id: null,
+      speaker_role: 'system',
+      message_type: 'system',
+      content,
+      metadata: {},
+      created_at: new Date().toISOString(),
+    }
+    addToTranscript(msg)
+    await supabase.from('discussion_messages').insert(msg)
+  }
+
+  const getMemberName = (memberId: string | null) => {
+    if (!memberId) return 'System'
+    const member = ministers.find(m => m.id === memberId)
+    return member?.name || 'Unknown'
+  }
+
+  // Submit ratings
+  const submitRatings = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+
+    const ratingData = Object.entries(ratings).map(([minister_id, rating]) => ({
+      minister_id,
+      rating,
+    }))
+
+    try {
+      const res = await fetch('/.netlify/functions/ministers-rate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ brief_id: id, ratings: ratingData }),
+      })
+
+      const result = await res.json()
+      
+      if (result.results) {
+        const statusChanges = result.results.filter((r: any) => r.status_change)
+        if (statusChanges.length > 0) {
+          alert(`Performance updates:\n${statusChanges.map((r: any) => 
+            `${r.name}: ${r.status_change.reason}`
+          ).join('\n')}`)
+        }
+      }
+
+      setShowRating(false)
+    } catch (error: any) {
+      console.error('Rating error:', error)
     }
   }
 
@@ -303,14 +359,10 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
     return 'idle'
   }
 
-  const getResponse = (ministerId: string) => {
-    return responses.find(r => r.cabinet_member_id === ministerId)
-  }
-
-  const getMemberName = (memberId: string | null) => {
-    if (!memberId) return 'System'
-    const member = ministers.find(m => m.id === memberId)
-    return member?.name || 'Unknown'
+  const getResponse = (ministerId: string) => responses.find(r => r.cabinet_member_id === ministerId)
+  const getMinisterAvgRating = (m: Minister) => {
+    if (!m.total_rating_count) return null
+    return (m.total_rating_sum! / m.total_rating_count).toFixed(1)
   }
 
   return (
@@ -363,12 +415,11 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
             <div className="text-center py-16 border border-dashed border-stone-dark rounded-lg">
               <MessageSquare className="h-12 w-12 text-ink-muted mx-auto mb-4" />
               <p className="body-sans text-ink-muted mb-4">No debate transcript yet.</p>
-              <p className="body-sans text-sm text-ink-muted">Click "Start Debate" to begin the Cabinet session.</p>
             </div>
           )}
 
           {hasTranscript && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {transcript.map((msg) => (
                 <TranscriptMessage 
                   key={msg.id} 
@@ -381,10 +432,37 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
             </div>
           )}
 
+          {/* User Interjection Input */}
           {isProcessing && (
-            <div className="flex items-center justify-center gap-2 py-8 text-ink-muted">
+            <div className="mt-6 p-4 bg-card border border-stone-dark rounded-lg">
+              <p className="body-sans text-xs text-ink-muted mb-2">Add context or redirect the discussion:</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={interjection}
+                  onChange={(e) => setInterjection(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && submitInterjection()}
+                  placeholder="e.g., 'Consider budget is limited to $500' or 'Focus more on long-term impact'"
+                  className="flex-1 px-3 py-2 bg-marble border border-stone-dark rounded body-sans text-sm"
+                />
+                <button
+                  onClick={submitInterjection}
+                  disabled={!interjection.trim()}
+                  className="px-4 py-2 bg-wine text-white rounded disabled:opacity-50"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+              {pendingInterjection && (
+                <p className="mt-2 text-xs text-wine">Pending: "{pendingInterjection}" - will be included in next response</p>
+              )}
+            </div>
+          )}
+
+          {isProcessing && !interjection && (
+            <div className="flex items-center justify-center gap-2 py-4 text-ink-muted">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="body-sans text-sm">{currentPhase || 'Ministers are deliberating...'}</span>
+              <span className="body-sans text-sm">{currentPhase}</span>
             </div>
           )}
         </div>
@@ -395,13 +473,21 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl mx-auto px-4">
           {councilMembers.map((m, i) => {
             const response = getResponse(m.id)
+            const avgRating = getMinisterAvgRating(m)
             return (
               <motion.div
                 key={m.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
+                className="relative"
               >
+                {m.status === 'probation' && (
+                  <div className="absolute -top-2 -right-2 bg-gold text-white text-xs px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    Probation
+                  </div>
+                )}
                 <Seat
                   name={m.name}
                   role={m.role}
@@ -411,20 +497,24 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
                   isOpposition={m.role === 'Skeptic'}
                   onClick={() => {}}
                 />
+                {avgRating && (
+                  <div className="mt-1 text-center text-xs text-ink-muted">
+                    ⭐ {avgRating} avg ({m.total_rating_count} sessions)
+                  </div>
+                )}
               </motion.div>
             )
           })}
         </div>
       )}
 
-      {/* Prime Minister's Podium */}
+      {/* PM Podium */}
       <div className="mt-12 px-4">
         <AnimatePresence>
           {pmData && (
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3, duration: 0.6 }}
             >
               <Podium
                 summary={pmData.summary}
@@ -435,32 +525,95 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
           )}
         </AnimatePresence>
       </div>
+
+      {/* Rating Modal */}
+      <AnimatePresence>
+        {showRating && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              className="bg-marble border border-stone-dark rounded-lg p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto"
+            >
+              <h2 className="heading-serif text-xl text-ink mb-2">Rate Your Ministers</h2>
+              <p className="body-sans text-sm text-ink-muted mb-6">
+                How helpful was each minister? Low ratings over time may lead to probation or replacement.
+              </p>
+
+              <div className="space-y-4">
+                {councilMembers.map(m => (
+                  <div key={m.id} className="flex items-center justify-between p-3 bg-card rounded-lg">
+                    <div>
+                      <p className="heading-serif text-ink">{m.name}</p>
+                      <p className="text-xs text-ink-muted">{m.role}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map(star => (
+                        <button
+                          key={star}
+                          onClick={() => setRatings(prev => ({ ...prev, [m.id]: star }))}
+                          className={`p-1 ${ratings[m.id] >= star ? 'text-gold' : 'text-stone-dark'}`}
+                        >
+                          <Star className="h-5 w-5" fill={ratings[m.id] >= star ? 'currentColor' : 'none'} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowRating(false)}
+                  className="flex-1 px-4 py-2 border border-stone-dark rounded-lg body-sans text-sm"
+                >
+                  Skip
+                </button>
+                <button
+                  onClick={submitRatings}
+                  className="flex-1 px-4 py-2 bg-wine text-white rounded-lg body-sans text-sm"
+                >
+                  Submit Ratings
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </Chamber>
   )
 }
 
-// Transcript Message Component
-function TranscriptMessage({ 
-  message, 
-  memberName,
-  isActive 
-}: { 
+function TranscriptMessage({ message, memberName, isActive }: { 
   message: DiscussionMessage
   memberName: string
   isActive: boolean
 }) {
   const isSystem = message.message_type === 'system'
+  const isUser = message.speaker_role === 'user'
   const isSynthesis = message.message_type === 'synthesis'
 
   if (isSystem) {
     return (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="text-center py-3"
-      >
+      <div className="text-center py-2">
         <span className="body-sans text-sm text-ink-muted">{message.content}</span>
-      </motion.div>
+      </div>
+    )
+  }
+
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="bg-wine/10 border border-wine/20 rounded-lg p-3 max-w-[80%]">
+          <p className="text-xs text-wine mb-1">You added:</p>
+          <p className="body-sans text-sm text-ink">{message.content}</p>
+        </div>
+      </div>
     )
   }
 
@@ -468,60 +621,41 @@ function TranscriptMessage({
   if (isSynthesis) {
     try {
       const synth = JSON.parse(message.content)
-      displayContent = synth.summary || message.content
-    } catch {
-      // Keep original
-    }
+      displayContent = synth.summary
+    } catch {}
   }
 
   const typeLabels: Record<string, string> = {
     opening: 'Opening',
     rebuttal: 'Rebuttal',
-    cross_exam: 'Cross-Exam',
+    cross_exam: 'Question',
+    closing: 'Final',
     synthesis: 'Synthesis',
-    vote: 'Vote',
-  }
-
-  const typeColors: Record<string, string> = {
-    opening: 'bg-stone text-ink-muted',
-    rebuttal: 'bg-blue-100 text-blue-800',
-    cross_exam: 'bg-wine/10 text-wine',
-    synthesis: 'bg-gold/20 text-gold-muted',
-    vote: 'bg-approve/10 text-approve',
   }
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: -20 }}
+      initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
-      className={`p-4 rounded-lg border ${
+      className={`p-3 rounded-lg border ${
         isActive ? 'border-wine bg-wine/5' : 'border-stone-dark bg-card'
       } ${isSynthesis ? 'ring-2 ring-gold/30' : ''}`}
     >
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <span className="heading-serif text-ink">{memberName}</span>
-          <span className={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wider ${typeColors[message.message_type] || 'bg-stone'}`}>
-            {typeLabels[message.message_type] || message.message_type}
-          </span>
-        </div>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="heading-serif text-sm text-ink">{memberName}</span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone text-ink-muted uppercase">
+          {typeLabels[message.message_type] || message.message_type}
+        </span>
         {message.metadata?.vote && (
-          <span className={`text-xs px-2 py-0.5 rounded uppercase ${
-            message.metadata.vote === 'approve' ? 'bg-approve/10 text-approve' :
-            message.metadata.vote === 'oppose' ? 'bg-wine/10 text-wine' :
-            'bg-stone text-ink-muted'
+          <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase ml-auto ${
+            message.metadata.vote === 'approve' ? 'bg-approve/20 text-approve' :
+            message.metadata.vote === 'oppose' ? 'bg-wine/20 text-wine' : 'bg-stone'
           }`}>
             {message.metadata.vote}
           </span>
         )}
       </div>
-      <p className="body-sans text-sm text-ink-muted leading-relaxed">{displayContent}</p>
-      {isActive && (
-        <div className="mt-2 flex items-center gap-1 text-wine">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          <span className="text-xs">Speaking...</span>
-        </div>
-      )}
+      <p className="body-sans text-sm text-ink-muted">{displayContent}</p>
     </motion.div>
   )
 }
