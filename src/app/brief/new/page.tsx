@@ -9,9 +9,11 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Loader2, Send } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 export default function NewBriefPage() {
   const router = useRouter()
+  const supabase = createClient()
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
     title: '',
@@ -25,9 +27,19 @@ export default function NewBriefPage() {
     setIsLoading(true)
 
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        alert('You must be logged in to create a brief.')
+        router.push('/login')
+        return
+      }
+
       const response = await fetch('/.netlify/functions/briefs-create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
         body: JSON.stringify({
           title: formData.title,
           input_context: {
@@ -38,13 +50,16 @@ export default function NewBriefPage() {
         }),
       })
 
-      if (!response.ok) throw new Error('Failed to create brief')
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to create brief')
+      }
 
       const { id } = await response.json()
       router.push(`/brief/${id}`)
-    } catch (error) {
+    } catch (error: any) {
       console.error(error)
-      alert('Error calling the Cabinet. Please try again.')
+      alert(`Error calling the Cabinet: ${error.message}`)
     } finally {
       setIsLoading(false)
     }
