@@ -98,11 +98,34 @@ export default function CabinetPage() {
     setMinisters(prev => prev.map(m => m.id === id ? { ...m, is_archived: false } : m))
   }
 
-  const handleDelete = (id: string) => {
-    // Only allow deletion of new unsaved ministers
+  const handleDelete = async (id: string) => {
+    // For new unsaved ministers, just remove from state
     if (id.startsWith('new-')) {
       setMinisters(prev => prev.filter(m => m.id !== id))
+      return
     }
+
+    // For existing ministers, confirm and delete from database
+    const minister = ministers.find(m => m.id === id)
+    if (!minister) return
+
+    const confirmed = window.confirm(
+      `Permanently delete "${minister.name}"?\n\nThis will remove all their ratings and performance history. This cannot be undone.`
+    )
+    
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from('cabinet_members')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      alert('Error deleting minister: ' + error.message)
+      return
+    }
+
+    setMinisters(prev => prev.filter(m => m.id !== id))
   }
 
   const handleSave = async () => {
@@ -231,13 +254,22 @@ export default function CabinetPage() {
                       <h3 className="heading-serif text-ink">{m.name}</h3>
                       <p className="body-sans text-xs text-ink-muted">{m.role}</p>
                     </div>
-                    <button
-                      onClick={() => handleRestore(m.id)}
-                      className="inline-flex items-center gap-2 px-3 py-1 border border-stone-dark rounded body-sans text-xs hover:bg-stone/50"
-                    >
-                      <RotateCcw className="h-3 w-3" />
-                      Restore
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleRestore(m.id)}
+                        className="inline-flex items-center gap-2 px-3 py-1 border border-stone-dark rounded body-sans text-xs hover:bg-stone/50"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        Restore
+                      </button>
+                      <button
+                        onClick={() => handleDelete(m.id)}
+                        className="inline-flex items-center gap-2 px-3 py-1 border border-wine/30 rounded body-sans text-xs text-wine hover:bg-wine/10"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -429,15 +461,13 @@ function MinisterCard({
                   <Archive className="h-3 w-3" />
                   Archive
                 </button>
-                {minister.isNew && (
-                  <button
-                    onClick={() => onDelete(minister.id)}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 border border-wine/30 rounded body-sans text-xs text-wine hover:bg-wine/10 transition-colors"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                    Delete
-                  </button>
-                )}
+                <button
+                  onClick={() => onDelete(minister.id)}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 border border-wine/30 rounded body-sans text-xs text-wine hover:bg-wine/10 transition-colors"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  {minister.isNew ? 'Remove' : 'Delete'}
+                </button>
               </div>
             </div>
           </motion.div>
