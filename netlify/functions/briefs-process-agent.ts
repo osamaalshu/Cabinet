@@ -20,14 +20,14 @@ export const handler = async (event: any) => {
     
     if (!brief || !member) throw new Error('Brief or Member not found')
 
-    // Fetch existing responses to enable "Debate"
+    // Fetch existing responses with member info to enable "Debate"
     const { data: existingResponses } = await supabase
       .from('brief_responses')
-      .select('response_text, cabinet_members(name, role)')
+      .select('*, member:cabinet_members(name, role)')
       .eq('brief_id', brief_id)
 
     const previousAdvice = existingResponses
-      ?.map((r: any) => `${r.cabinet_members.name}: ${r.response_text}`)
+      ?.map((r: any) => `${r.member?.name || 'Colleague'}: ${r.response_text}`)
       .join('\n\n')
 
     if (is_pm) {
@@ -52,6 +52,7 @@ export const handler = async (event: any) => {
       return { statusCode: 200, body: JSON.stringify(response) }
     }
   } catch (error: any) {
+    console.error('Process agent error:', error)
     return { statusCode: 500, body: JSON.stringify({ error: error.message }) }
   }
 }

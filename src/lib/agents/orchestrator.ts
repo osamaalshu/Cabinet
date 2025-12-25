@@ -19,17 +19,20 @@ export interface BriefContext {
   values: string[]
 }
 
-export async function runMinister(minister: Minister, context: BriefContext) {
+export async function runMinister(minister: Minister, context: BriefContext, previousAdvice?: string) {
   const prompt = `
     CONTEXT:
     Goals: ${context.goals}
     Constraints: ${context.constraints}
     Values: ${context.values.join(', ')}
 
+    ${previousAdvice ? `PREVIOUS TESTIMONY FROM OTHER MINISTERS:\n${previousAdvice}\n` : ''}
+
     Your role: ${minister.name} (${minister.role})
     System Prompt: ${minister.system_prompt}
 
-    Provide your advice for the user based on the context above.
+    Provide your advice for the user based on the context above. ${previousAdvice ? 'Feel free to briefly reference or debate the points made by previous ministers if you disagree or want to add nuance.' : ''}
+    
     Format your response as a JSON object with two fields:
     1. "response_text": Your detailed advice (STRICTLY 1 concise paragraph).
     2. "vote": Your recommendation. Choose one: "approve", "abstain", or "oppose".
@@ -45,7 +48,7 @@ export async function runMinister(minister: Minister, context: BriefContext) {
       ],
       temperature: minister.temperature,
       response_format: { type: 'json_object' },
-    }, { timeout: 7000 }) // Fail fast to avoid Netlify 10s timeout
+    }, { timeout: 7000 })
 
     const content = response.choices[0].message.content
     if (!content) throw new Error('No content returned from OpenAI')
@@ -67,7 +70,7 @@ export async function runPrimeMinister(
   ministerResponses: any[]
 ) {
   const ministerAdvice = ministerResponses
-    .map(r => `${r.name} (${r.role}): ${r.response_text} (Vote: ${r.vote})`)
+    .map(r => `${r.name || r.member?.name} (${r.role || r.member?.role}): ${r.response_text} (Vote: ${r.vote})`)
     .join('\n\n')
 
   const prompt = `
@@ -88,19 +91,18 @@ export async function runPrimeMinister(
     2. "options": An array of objects, each with "title", "description" (1 sentence), and "tradeoffs" (1 sentence).
   `
 
-    const response = await openai.chat.completions.create({
-      model: pmMinister.model_name,
-      messages: [
-        { role: 'system', content: pmMinister.system_prompt },
-        { role: 'user', content: prompt },
-      ],
-      temperature: pmMinister.temperature,
-      response_format: { type: 'json_object' },
-    }, { timeout: 7000 })
+  const response = await openai.chat.completions.create({
+    model: pmMinister.model_name,
+    messages: [
+      { role: 'system', content: pmMinister.system_prompt },
+      { role: 'user', content: prompt },
+    ],
+    temperature: pmMinister.temperature,
+    response_format: { type: 'json_object' },
+  }, { timeout: 7000 })
 
   const content = response.choices[0].message.content
   if (!content) throw new Error('No content returned from OpenAI')
 
   return JSON.parse(content)
 }
-
