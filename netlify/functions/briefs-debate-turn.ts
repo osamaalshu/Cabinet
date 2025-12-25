@@ -160,6 +160,7 @@ Respond as JSON:
     }
 
     // Call OpenAI - use max_completion_tokens for newer models (gpt-5 series)
+    // GPT-5 models don't support custom temperature - only default (1)
     const maxTokens = turn_type === 'synthesis' ? 500 : turn_type === 'opening' ? 300 : 150
     const modelName = minister.model_name || 'gpt-5-nano'
     const isNewModel = modelName.startsWith('gpt-5') || modelName.startsWith('o1') || modelName.startsWith('o3')
@@ -170,7 +171,8 @@ Respond as JSON:
         { role: 'system', content: minister.system_prompt + '\nBe concise and direct. No filler words.' },
         { role: 'user', content: prompt },
       ],
-      temperature: minister.temperature,
+      // GPT-5 models only support temperature=1, older models can use custom temperature
+      ...(isNewModel ? {} : { temperature: minister.temperature }),
       response_format: { type: 'json_object' },
       ...(isNewModel ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
     }, { timeout: 8000 })
