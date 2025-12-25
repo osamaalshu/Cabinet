@@ -3,20 +3,21 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Loader2, Mail, Lock } from 'lucide-react'
+import { Loader2, Mail, Lock, Hash } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import Link from 'next/link'
 
-type AuthMode = 'password' | 'magic-link' | 'set-password'
+type AuthMode = 'password' | 'magic-link' | 'otp' | 'set-password'
 
 function LoginForm() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [otp, setOtp] = useState('')
   const [authMode, setAuthMode] = useState<AuthMode>('password')
   const [isLoading, setIsLoading] = useState(false)
+  const [otpSent, setOtpSent] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   const supabase = createClient()
 
@@ -40,7 +41,7 @@ function LoginForm() {
 
     if (error) {
       if (error.message.includes('Invalid login credentials')) {
-        setMessage({ type: 'error', text: 'Invalid email or password. Try magic link if you haven\'t set a password.' })
+        setMessage({ type: 'error', text: 'Invalid email or password.' })
       } else {
         setMessage({ type: 'error', text: error.message })
       }
@@ -73,6 +74,44 @@ function LoginForm() {
     setIsLoading(false)
   }
 
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setMessage(null)
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: true },
+    })
+
+    if (error) {
+      setMessage({ type: 'error', text: error.message })
+    } else {
+      setOtpSent(true)
+      setMessage({ type: 'success', text: 'Enter the 6-digit code sent to your email.' })
+    }
+    setIsLoading(false)
+  }
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setMessage(null)
+
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token: otp,
+      type: 'email',
+    })
+
+    if (error) {
+      setMessage({ type: 'error', text: 'Invalid or expired code. Please try again.' })
+      setIsLoading(false)
+    } else {
+      router.push(nextPath)
+    }
+  }
+
   const handleSetPassword = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -91,79 +130,141 @@ function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-md border-slate-700 bg-slate-800/50 backdrop-blur">
-      <CardHeader className="space-y-1 text-center">
-        <CardTitle className="text-2xl font-bold tracking-tight text-white">Welcome to the Cabinet</CardTitle>
-        <CardDescription className="text-slate-400">
-          {authMode === 'password' && 'Sign in with your email and password'}
-          {authMode === 'magic-link' && 'Get a magic link sent to your email'}
-          {authMode === 'set-password' && 'Set a password for instant login'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={
-          authMode === 'password' ? handlePasswordLogin :
-          authMode === 'magic-link' ? handleMagicLink :
-          handleSetPassword
-        } className="space-y-4">
-          <Input
-            type="email"
-            placeholder="name@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
-            required
-          />
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="w-full max-w-md"
+    >
+      {/* Logo */}
+      <div className="text-center mb-8">
+        <Link href="/" className="heading-display text-4xl text-ink">Cabinet</Link>
+        <p className="body-sans text-ink-muted mt-2">Your council of advisors awaits</p>
+      </div>
 
-          {authMode === 'password' && (
-            <Input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
-              required
-            />
-          )}
+      {/* Card */}
+      <div className="bg-card border border-stone-dark rounded-xl p-8">
+        <h2 className="heading-serif text-xl text-ink text-center mb-1">
+          {authMode === 'password' && 'Sign In'}
+          {authMode === 'magic-link' && 'Magic Link'}
+          {authMode === 'otp' && (otpSent ? 'Enter Code' : 'One-Time Password')}
+          {authMode === 'set-password' && 'Set Password'}
+        </h2>
+        <p className="body-sans text-sm text-ink-muted text-center mb-6">
+          {authMode === 'password' && 'Enter your credentials'}
+          {authMode === 'magic-link' && 'Get a sign-in link via email'}
+          {authMode === 'otp' && (otpSent ? 'Check your email inbox' : 'Get a 6-digit code via email')}
+          {authMode === 'set-password' && 'First time? Create a password'}
+        </p>
 
-          {message && (
-            <div className={`text-sm p-3 rounded ${
-              message.type === 'success' 
-                ? 'bg-green-900/50 text-green-300 border border-green-700' 
-                : 'bg-red-900/50 text-red-300 border border-red-700'
-            }`}>
-              {message.text}
+        <form
+          onSubmit={
+            authMode === 'password' ? handlePasswordLogin :
+            authMode === 'magic-link' ? handleMagicLink :
+            authMode === 'otp' ? (otpSent ? handleVerifyOtp : handleSendOtp) :
+            handleSetPassword
+          }
+          className="space-y-4"
+        >
+          {/* Email Input */}
+          {!(authMode === 'otp' && otpSent) && (
+            <div>
+              <label className="block body-sans text-sm text-ink-muted mb-2">Email</label>
+              <input
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:border-wine/50 transition-colors"
+                required
+              />
             </div>
           )}
 
-          <Button className="w-full bg-primary hover:bg-primary/90" type="submit" disabled={isLoading}>
-            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {authMode === 'password' && (
-              <><Lock className="mr-2 h-4 w-4" /> Sign In</>
+          {/* Password Input */}
+          {authMode === 'password' && (
+            <div>
+              <label className="block body-sans text-sm text-ink-muted mb-2">Password</label>
+              <input
+                type="password"
+                placeholder="Your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:border-wine/50 transition-colors"
+                required
+              />
+            </div>
+          )}
+
+          {/* OTP Input */}
+          {authMode === 'otp' && otpSent && (
+            <div>
+              <label className="block body-sans text-sm text-ink-muted mb-2">6-Digit Code</label>
+              <input
+                type="text"
+                placeholder="000000"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="w-full px-4 py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink text-center text-2xl tracking-[0.5em] placeholder:text-ink-muted placeholder:tracking-[0.5em] focus:outline-none focus:border-wine/50 transition-colors"
+                maxLength={6}
+                required
+              />
+            </div>
+          )}
+
+          {/* Message */}
+          <AnimatePresence>
+            {message && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className={`p-3 rounded-lg body-sans text-sm ${
+                  message.type === 'success'
+                    ? 'bg-approve/10 text-approve'
+                    : 'bg-wine/10 text-wine'
+                }`}
+              >
+                {message.text}
+              </motion.div>
             )}
-            {authMode === 'magic-link' && (
-              <><Mail className="mr-2 h-4 w-4" /> Send Magic Link</>
-            )}
-            {authMode === 'set-password' && (
-              <><Lock className="mr-2 h-4 w-4" /> Send Password Reset</>
-            )}
-          </Button>
+          </AnimatePresence>
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full px-6 py-3 bg-wine text-white rounded-lg heading-serif hover:bg-wine-light transition-colors flex items-center justify-center gap-2"
+          >
+            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {authMode === 'password' && <><Lock className="h-4 w-4" /> Sign In</>}
+            {authMode === 'magic-link' && <><Mail className="h-4 w-4" /> Send Magic Link</>}
+            {authMode === 'otp' && (otpSent ? <><Hash className="h-4 w-4" /> Verify Code</> : <><Hash className="h-4 w-4" /> Send Code</>)}
+            {authMode === 'set-password' && <><Lock className="h-4 w-4" /> Send Reset Email</>}
+          </button>
         </form>
 
-        <div className="mt-6 space-y-2">
+        {/* Mode Switchers */}
+        <div className="mt-6 pt-6 border-t border-stone space-y-2">
           {authMode === 'password' && (
             <>
               <button
                 type="button"
-                onClick={() => setAuthMode('magic-link')}
-                className="w-full text-sm text-slate-400 hover:text-white transition-colors"
+                onClick={() => { setAuthMode('magic-link'); setMessage(null) }}
+                className="w-full body-sans text-sm text-ink-muted hover:text-ink transition-colors"
               >
                 Use magic link instead
               </button>
               <button
                 type="button"
-                onClick={() => setAuthMode('set-password')}
-                className="w-full text-sm text-slate-400 hover:text-white transition-colors"
+                onClick={() => { setAuthMode('otp'); setOtpSent(false); setMessage(null) }}
+                className="w-full body-sans text-sm text-ink-muted hover:text-ink transition-colors"
+              >
+                Use one-time code
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthMode('set-password'); setMessage(null) }}
+                className="w-full body-sans text-sm text-ink-muted hover:text-ink transition-colors"
               >
                 First time? Set a password
               </button>
@@ -172,40 +273,49 @@ function LoginForm() {
           {authMode === 'magic-link' && (
             <button
               type="button"
-              onClick={() => setAuthMode('password')}
-              className="w-full text-sm text-slate-400 hover:text-white transition-colors"
+              onClick={() => { setAuthMode('password'); setMessage(null) }}
+              className="w-full body-sans text-sm text-ink-muted hover:text-ink transition-colors"
             >
-              Sign in with password instead
+              Sign in with password
+            </button>
+          )}
+          {authMode === 'otp' && (
+            <button
+              type="button"
+              onClick={() => { setAuthMode('password'); setOtpSent(false); setMessage(null) }}
+              className="w-full body-sans text-sm text-ink-muted hover:text-ink transition-colors"
+            >
+              Sign in with password
             </button>
           )}
           {authMode === 'set-password' && (
             <button
               type="button"
-              onClick={() => setAuthMode('password')}
-              className="w-full text-sm text-slate-400 hover:text-white transition-colors"
+              onClick={() => { setAuthMode('password'); setMessage(null) }}
+              className="w-full body-sans text-sm text-ink-muted hover:text-ink transition-colors"
             >
               Back to sign in
             </button>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </motion.div>
   )
 }
 
 function LoginFallback() {
   return (
-    <Card className="w-full max-w-md border-slate-700 bg-slate-800/50 backdrop-blur">
-      <CardContent className="flex items-center justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-      </CardContent>
-    </Card>
+    <div className="w-full max-w-md">
+      <div className="bg-card border border-stone-dark rounded-xl p-8 flex items-center justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-ink-muted" />
+      </div>
+    </div>
   )
 }
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4 py-12">
+    <div className="min-h-screen bg-marble flex items-center justify-center px-6 py-12">
       <Suspense fallback={<LoginFallback />}>
         <LoginForm />
       </Suspense>

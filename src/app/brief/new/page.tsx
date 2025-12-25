@@ -1,17 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { Navbar } from '@/components/common/Navbar'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { createClient } from '@/lib/supabase/client'
-import { Loader2, ArrowRight, ArrowLeft } from 'lucide-react'
+import { Loader2, ArrowRight } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 export default function NewBriefPage() {
   const router = useRouter()
   const supabase = createClient()
+  const [user, setUser] = useState<any>(null)
+  const [profile, setProfile] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
     title: '',
@@ -19,6 +21,26 @@ export default function NewBriefPage() {
     constraints: '',
     values: '',
   })
+
+  useEffect(() => {
+    async function loadUser() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/login')
+        return
+      }
+      setUser(user)
+      
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('id', user.id)
+        .single()
+      
+      if (profileData) setProfile(profileData)
+    }
+    loadUser()
+  }, [supabase, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -55,15 +77,7 @@ export default function NewBriefPage() {
 
   return (
     <div className="min-h-screen bg-marble">
-      {/* Header */}
-      <header className="border-b border-stone bg-marble/80 backdrop-blur-sm">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="inline-flex items-center gap-2 body-sans text-sm text-ink-muted hover:text-ink transition-colors">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Link>
-        </div>
-      </header>
+      <Navbar userEmail={user?.email} userName={profile?.display_name} />
 
       {/* Main */}
       <main className="max-w-3xl mx-auto px-6 py-16">
@@ -166,6 +180,9 @@ export default function NewBriefPage() {
           </form>
         </motion.div>
       </main>
+      
+      {/* Footer accent */}
+      <div className="fixed bottom-0 inset-x-0 h-2 bg-gradient-to-r from-wine via-wine-dark to-wine" />
     </div>
   )
 }

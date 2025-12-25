@@ -7,16 +7,18 @@ interface ChamberProps {
   title: string
   subtitle?: string
   isInSession?: boolean
+  userEmail?: string | null
+  userName?: string | null
   children: React.ReactNode
 }
 
-export function Chamber({ title, subtitle, isInSession, children }: ChamberProps) {
+export function Chamber({ title, subtitle, isInSession, userEmail, userName, children }: ChamberProps) {
   return (
     <div className="min-h-screen bg-marble">
-      <Navbar />
+      <Navbar userEmail={userEmail} userName={userName} />
       
       {/* Chamber Header */}
-      <header className="pt-20 pb-8 text-center">
+      <header className="pt-12 pb-8 text-center">
         <motion.h1 
           className="heading-display text-4xl md:text-5xl text-ink"
           initial={{ opacity: 0, y: -20 }}

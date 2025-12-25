@@ -17,6 +17,8 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
   const [responses, setResponses] = useState<any[]>([])
   const [activeMinisterId, setActiveMinisterId] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [user, setUser] = useState<any>(null)
+  const [profile, setProfile] = useState<any>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -24,9 +26,16 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
 
-      const { data: briefData } = await supabase.from('briefs').select('*, brief_responses(*)')
-        .eq('id', id).single()
+      setUser(session.user)
+
+      const [briefRes, profileRes] = await Promise.all([
+        supabase.from('briefs').select('*, brief_responses(*)').eq('id', id).single(),
+        supabase.from('profiles').select('display_name').eq('id', session.user.id).single()
+      ])
       
+      const briefData = briefRes.data
+      if (profileRes.data) setProfile(profileRes.data)
+
       const { data: members } = await supabase.from('cabinet_members')
         .select('*').eq('user_id', briefData.user_id).eq('is_enabled', true)
 
@@ -103,6 +112,8 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       title={brief.title}
       subtitle={isProcessing ? 'Session in progress' : 'Deliberation complete'}
       isInSession={isProcessing}
+      userEmail={user?.email}
+      userName={profile?.display_name}
     >
       {/* The Round Table */}
       <div className="relative flex items-center justify-center py-8">

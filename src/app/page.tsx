@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { requireUser } from '@/lib/supabase/auth'
 import { createClient } from '@/lib/supabase/server'
 import { ArrowRight, Plus } from 'lucide-react'
+import { Navbar } from '@/components/common/Navbar'
+import { BriefCard } from '@/components/dashboard/BriefCard'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,30 +11,22 @@ export default async function DashboardPage() {
   const user = await requireUser()
   const supabase = await createClient()
   
+  // Fetch user profile
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('display_name')
+    .eq('id', user.id)
+    .single()
+
   const { data: briefs } = await supabase
     .from('briefs')
     .select('id, title, status, created_at')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
-    .limit(5)
 
   return (
     <div className="min-h-screen bg-marble">
-      {/* Header */}
-      <header className="border-b border-stone bg-marble/80 backdrop-blur-sm">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="heading-serif text-xl text-ink">Cabinet</h1>
-          <div className="flex items-center gap-4">
-            <span className="body-sans text-sm text-ink-muted">{user.email}</span>
-            <Link 
-              href="/cabinet" 
-              className="body-sans text-sm text-ink-muted hover:text-ink transition-colors"
-            >
-              Configure
-            </Link>
-          </div>
-        </div>
-      </header>
+      <Navbar userEmail={user.email} userName={profile?.display_name} />
 
       {/* Main */}
       <main className="max-w-4xl mx-auto px-6 py-16">
@@ -58,42 +52,16 @@ export default async function DashboardPage() {
           </Link>
         </div>
 
-        {/* Recent Sessions */}
+        {/* All Sessions */}
         {briefs && briefs.length > 0 && (
           <div>
             <h3 className="heading-serif text-lg text-ink mb-6 flex items-center gap-3">
               <span className="w-8 h-px bg-stone-dark" />
-              Recent Sessions
+              Your Sessions
             </h3>
             <div className="space-y-3">
               {briefs.map((brief) => (
-                <Link
-                  key={brief.id}
-                  href={`/brief/${brief.id}`}
-                  className="block p-5 bg-card border border-stone-dark rounded-lg hover:border-wine/30 transition-colors group"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="heading-serif text-lg text-ink group-hover:text-wine transition-colors">
-                        {brief.title}
-                      </h4>
-                      <p className="body-sans text-sm text-ink-muted mt-1">
-                        {new Date(brief.created_at).toLocaleDateString('en-US', {
-                          month: 'long',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}
-                      </p>
-                    </div>
-                    <div className={`px-3 py-1 rounded text-xs uppercase tracking-wider ${
-                      brief.status === 'done' 
-                        ? 'bg-approve/10 text-approve' 
-                        : 'bg-gold/10 text-gold-muted'
-                    }`}>
-                      {brief.status === 'done' ? 'Complete' : 'In Progress'}
-                    </div>
-                  </div>
-                </Link>
+                <BriefCard key={brief.id} brief={brief} />
               ))}
             </div>
           </div>
