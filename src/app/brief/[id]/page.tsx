@@ -1,14 +1,25 @@
 'use client'
 
 import { useEffect, useState, use } from 'react'
-import Navbar from '@/components/common/Navbar'
-import { MinisterCard } from '@/components/cabinet/MinisterCard'
-import { BriefSummary } from '@/components/cabinet/BriefSummary'
-import { Loader2, MessageSquare, Sparkles } from 'lucide-react'
+import { Chamber } from '@/components/cabinet/Chamber'
+import { Seat, SeatState, VoteType } from '@/components/cabinet/Seat'
+import { Podium } from '@/components/cabinet/Podium'
+import { Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { motion, AnimatePresence } from 'framer-motion'
 
 export const dynamic = 'force-dynamic'
+
+// Fixed seat positions for a semi-circular arrangement (5 ministers + opposition)
+const SEAT_POSITIONS = [
+  { top: '45%', left: '5%', transform: 'translateY(-50%)' },   // Left edge
+  { top: '15%', left: '15%' },                                   // Top-left
+  { top: '0%', left: '50%', transform: 'translateX(-50%)' },    // Top center
+  { top: '15%', right: '15%' },                                  // Top-right
+  { top: '45%', right: '5%', transform: 'translateY(-50%)' },  // Right edge
+]
+
+const OPPOSITION_POSITION = { bottom: '0%', left: '50%', transform: 'translateX(-50%)' }
 
 export default function BriefDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -24,7 +35,6 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
 
-      // 1. Fetch the brief and all enabled ministers
       const { data: briefData } = await supabase.from('briefs').select('*, brief_responses(*)')
         .eq('id', id).single()
       
@@ -35,7 +45,6 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       setMinisters(members || [])
       setResponses(briefData.brief_responses || [])
 
-      // 2. If the brief is still 'running' and has no responses, start the live session
       if (briefData.status === 'running' && briefData.brief_responses.length === 0) {
         runLiveSession(session.access_token, members || [])
       }
@@ -76,99 +85,107 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
     initSession()
   }, [id, supabase])
 
-  if (!brief) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin" /></div>
+  if (!brief) {
+    return (
+      <div className="min-h-screen bg-marble flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-ink-muted" />
+      </div>
+    )
+  }
 
   const pmResponse = responses.find((r: any) => r.metadata?.type === 'synthesis')
   const pmData = pmResponse ? JSON.parse(pmResponse.response_text) : null
-  const ministerResponses = responses.filter((r: any) => r.metadata?.type !== 'synthesis')
+  
+  // Separate ministers: regular vs opposition
+  const regularMinisters = ministers.filter(m => m.role !== 'Synthesizer' && m.role !== 'Skeptic')
+  const opposition = ministers.find(m => m.role === 'Skeptic')
+
+  const getSeatState = (ministerId: string): SeatState => {
+    if (activeMinisterId === ministerId) return 'speaking'
+    if (responses.find(r => r.cabinet_member_id === ministerId)) return 'responded'
+    return 'idle'
+  }
+
+  const getResponse = (ministerId: string) => {
+    return responses.find(r => r.cabinet_member_id === ministerId)
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-20">
-      <Navbar />
-      <main className="container mx-auto px-4 py-12">
-        <div className="mb-12 text-center">
-          <motion.h1 
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-4xl font-black tracking-tight mb-2 uppercase"
-          >
-            {brief.title}
-          </motion.h1>
-          <p className="text-slate-500 font-medium">Cabinet Session in Progress</p>
-        </div>
-
-        <AnimatePresence>
-          {pmData && (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="mb-16"
+    <Chamber
+      title={brief.title}
+      subtitle={isProcessing ? 'Session in progress' : 'Deliberation complete'}
+      isInSession={isProcessing}
+    >
+      {/* The Round Table */}
+      <div className="relative mt-8 mb-16" style={{ minHeight: '500px' }}>
+        
+        {/* Regular Ministers - Semi-circle arrangement */}
+        {regularMinisters.slice(0, 5).map((m, i) => {
+          const response = getResponse(m.id)
+          const position = SEAT_POSITIONS[i] || SEAT_POSITIONS[0]
+          
+          return (
+            <div
+              key={m.id}
+              className="absolute w-64"
+              style={position}
             >
-              <BriefSummary summary={pmData.summary} options={pmData.options} />
-            </motion.div>
-          )}
-        </AnimatePresence>
+              <Seat
+                name={m.name}
+                role={m.role}
+                state={getSeatState(m.id)}
+                vote={response?.vote as VoteType}
+                response={response?.response_text}
+                onClick={() => {}}
+              />
+            </div>
+          )
+        })}
 
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-          {ministers.filter(m => m.role !== 'Synthesizer').map((m) => {
-            const response = responses.find(r => r.cabinet_member_id === m.id)
-            const isActive = activeMinisterId === m.id
+        {/* Opposition Leader - Separate position at bottom */}
+        {opposition && (
+          <div
+            className="absolute w-72"
+            style={OPPOSITION_POSITION}
+          >
+            <Seat
+              name={opposition.name}
+              role={opposition.role}
+              state={getSeatState(opposition.id)}
+              vote={getResponse(opposition.id)?.vote as VoteType}
+              response={getResponse(opposition.id)?.response_text}
+              isOpposition
+              onClick={() => {}}
+            />
+          </div>
+        )}
+      </div>
 
-            return (
-              <motion.div
-                key={m.id}
-                layout
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className={`relative rounded-xl transition-all duration-500 ${
-                  isActive ? 'ring-4 ring-primary ring-offset-4 scale-105 z-10' : ''
-                }`}
-              >
-                {isActive && (
-                  <div className="absolute -top-4 -right-4 bg-primary text-white p-2 rounded-full shadow-lg animate-bounce">
-                    <MessageSquare className="h-4 w-4" />
-                  </div>
-                )}
-                
-                {response ? (
-                  <MinisterCard
-                    name={m.name}
-                    role={m.role}
-                    responseText={response.response_text}
-                    vote={response.vote}
-                    onClick={() => {}}
-                  />
-                ) : (
-                  <div className="h-48 border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center bg-white/50 dark:bg-slate-900/50">
-                    {isActive ? (
-                      <>
-                        <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
-                        <span className="text-sm font-bold text-primary animate-pulse">{m.name} is speaking...</span>
-                      </>
-                    ) : (
-                      <>
-                        <div className="h-12 w-12 rounded-full bg-slate-200 dark:bg-slate-800 mb-2" />
-                        <span className="text-xs font-medium text-slate-400 uppercase">{m.role}</span>
-                      </>
-                    )}
-                  </div>
-                )}
-              </motion.div>
-            )
-          })}
+      {/* Prime Minister's Podium - Center Stage */}
+      <AnimatePresence>
+        {pmData && (
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.6 }}
+          >
+            <Podium
+              summary={pmData.summary}
+              options={pmData.options || []}
+              onSelectOption={(i) => console.log('Selected option:', i)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Waiting for PM */}
+      {!pmData && !isProcessing && responses.length > 0 && (
+        <div className="text-center py-12">
+          <p className="body-sans text-ink-muted">
+            Awaiting the Prime Minister's synthesis...
+          </p>
         </div>
-      </main>
-
-      {isProcessing && (
-        <motion.div 
-          initial={{ y: 100 }}
-          animate={{ y: 0 }}
-          className="fixed bottom-0 left-0 right-0 bg-primary text-white p-4 text-center font-bold flex items-center justify-center gap-2 shadow-2xl"
-        >
-          <Sparkles className="h-5 w-5 animate-pulse" />
-          Live Deliberation Underway...
-        </motion.div>
       )}
-    </div>
+    </Chamber>
   )
 }

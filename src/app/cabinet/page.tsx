@@ -1,14 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Navbar from '@/components/common/Navbar'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
+import { Chamber } from '@/components/cabinet/Chamber'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, Save } from 'lucide-react'
+import { motion } from 'framer-motion'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,73 +36,94 @@ export default function CabinetPage() {
   const handleSave = async () => {
     setIsSaving(true)
     const { error } = await supabase.from('cabinet_members').upsert(ministers)
-    if (error) alert('Error saving cabinet: ' + error.message)
-    else alert('Cabinet updated successfully!')
+    if (error) alert('Error saving: ' + error.message)
     setIsSaving(false)
   }
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="min-h-screen bg-marble flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-ink-muted" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-20">
-      <Navbar />
-      <main className="container mx-auto px-4 py-12">
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">The Cabinet</h1>
-            <p className="text-gray-500">Configure your ministers and their AI models.</p>
-          </div>
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-            Save Changes
-          </Button>
-        </div>
+    <Chamber
+      title="Configure the Cabinet"
+      subtitle="Adjust your council of advisors"
+    >
+      {/* Save Button */}
+      <div className="flex justify-end mb-8">
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={handleSave}
+          disabled={isSaving}
+          className="inline-flex items-center gap-2 px-6 py-3 bg-wine text-white rounded-lg body-sans font-medium hover:bg-wine-light transition-colors disabled:opacity-50"
+        >
+          {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          Save Changes
+        </motion.button>
+      </div>
 
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {ministers.map((m) => (
-            <Card key={m.id} className={m.is_enabled ? '' : 'opacity-60'}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div>
-                  <CardTitle className="text-lg">{m.name}</CardTitle>
-                  <CardDescription>{m.role}</CardDescription>
-                </div>
-                <Switch
-                  checked={m.is_enabled}
-                  onCheckedChange={(checked) => handleToggle(m.id, checked)}
+      {/* Ministers Grid */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {ministers.map((m, i) => (
+          <motion.div
+            key={m.id}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05 }}
+            className={`bg-card border border-stone-dark rounded-lg p-6 transition-opacity ${
+              m.is_enabled ? 'opacity-100' : 'opacity-50'
+            }`}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <h3 className="heading-serif text-lg text-ink">{m.name}</h3>
+                <p className="body-sans text-xs text-ink-muted uppercase tracking-widest mt-0.5">
+                  {m.role}
+                </p>
+              </div>
+              <Switch
+                checked={m.is_enabled}
+                onCheckedChange={(checked) => handleToggle(m.id, checked)}
+              />
+            </div>
+
+            {/* Config */}
+            <div className="space-y-4">
+              <div>
+                <label className="body-sans text-xs text-ink-muted uppercase tracking-wider block mb-2">
+                  Model
+                </label>
+                <Input
+                  value={m.model_name}
+                  onChange={(e) => handleChange(m.id, 'model_name', e.target.value)}
+                  placeholder="gpt-4o-mini"
+                  className="bg-marble border-stone-dark text-ink"
                 />
-              </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase">Model Name</Label>
-                  <Input
-                    value={m.model_name}
-                    onChange={(e) => handleChange(m.id, 'model_name', e.target.value)}
-                    placeholder="gpt-4o-mini"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase">Temperature ({m.temperature})</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="1"
-                    value={m.temperature}
-                    onChange={(e) => handleChange(m.id, 'temperature', parseFloat(e.target.value))}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </main>
-    </div>
+              </div>
+              <div>
+                <label className="body-sans text-xs text-ink-muted uppercase tracking-wider block mb-2">
+                  Temperature ({m.temperature})
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value={m.temperature}
+                  onChange={(e) => handleChange(m.id, 'temperature', parseFloat(e.target.value))}
+                  className="w-full accent-wine"
+                />
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </Chamber>
   )
 }
-
