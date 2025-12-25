@@ -46,32 +46,48 @@ export const DEFAULT_MINISTERS = [
 ]
 
 export async function ensureUserProfileAndCabinet(userId: string) {
+  console.log('Starting ensureUserProfileAndCabinet for:', userId)
   const supabase = await createAdminClient()
 
   // 1. Ensure profile exists
-  const { data: profile } = await supabase
+  console.log('Checking profile...')
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('id')
     .eq('id', userId)
-    .single()
+    .maybeSingle()
+
+  if (profileError) {
+    console.error('Error checking profile:', profileError)
+  }
 
   if (!profile) {
-    await supabase.from('profiles').insert({ id: userId })
+    console.log('Creating profile...')
+    const { error: insertError } = await supabase.from('profiles').insert({ id: userId })
+    if (insertError) console.error('Error creating profile:', insertError)
   }
 
   // 2. Ensure cabinet members exist
-  const { data: members } = await supabase
+  console.log('Checking cabinet members...')
+  const { data: members, error: membersError } = await supabase
     .from('cabinet_members')
     .select('id')
     .eq('user_id', userId)
     .limit(1)
 
+  if (membersError) {
+    console.error('Error checking cabinet members:', membersError)
+  }
+
   if (!members || members.length === 0) {
+    console.log('Seeding default cabinet members...')
     const cabinetWithUserId = DEFAULT_MINISTERS.map(m => ({
       ...m,
       user_id: userId,
     }))
-    await supabase.from('cabinet_members').insert(cabinetWithUserId)
+    const { error: seedError } = await supabase.from('cabinet_members').insert(cabinetWithUserId)
+    if (seedError) console.error('Error seeding cabinet members:', seedError)
   }
+  console.log('ensureUserProfileAndCabinet finished.')
 }
 
