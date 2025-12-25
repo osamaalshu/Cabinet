@@ -15,6 +15,7 @@ export default function NewBriefPage() {
   const router = useRouter()
   const supabase = createClient()
   const [isLoading, setIsLoading] = useState(false)
+  const [progress, setProgress] = useState('')
   const [formData, setFormData] = useState({
     title: '',
     goals: '',
@@ -25,16 +26,14 @@ export default function NewBriefPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    setProgress('Initializing the Cabinet...')
 
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        alert('You must be logged in to create a brief.')
-        router.push('/login')
-        return
-      }
+      if (!session) return router.push('/login')
 
-      const response = await fetch('/.netlify/functions/briefs-create', {
+      // 1. Create the Brief
+      const createRes = await fetch('/.netlify/functions/briefs-create', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -50,16 +49,43 @@ export default function NewBriefPage() {
         }),
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to create brief')
+      const { brief_id, ministers } = await createRes.json()
+      
+      const regularMinisters = ministers.filter((m: any) => m.role !== 'Synthesizer')
+      const pm = ministers.find((m: any) => m.role === 'Synthesizer')
+
+      // 2. Run each minister sequentially
+      for (const m of regularMinisters) {
+        setProgress(`Consulting ${m.role}...`)
+        await fetch('/.netlify/functions/briefs-process-agent', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({ brief_id, cabinet_member_id: m.id, is_pm: false }),
+        })
       }
 
-      const { id } = await response.json()
-      router.push(`/brief/${id}`)
+      // 3. Run Prime Minister
+      if (pm) {
+        setProgress('Prime Minister is synthesizing...')
+        await fetch('/.netlify/functions/briefs-process-agent', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({ brief_id, cabinet_member_id: pm.id, is_pm: true }),
+        })
+      }
+
+      // 4. Mark Done and Redirect
+      await supabase.from('briefs').update({ status: 'done' }).eq('id', brief_id)
+      router.push(`/brief/${brief_id}`)
     } catch (error: any) {
       console.error(error)
-      alert(`Error calling the Cabinet: ${error.message}`)
+      alert(`Meeting interrupted: ${error.message}`)
     } finally {
       setIsLoading(false)
     }
@@ -73,9 +99,7 @@ export default function NewBriefPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-2xl">New Morning Brief</CardTitle>
-              <CardDescription>
-                Set the agenda for today's cabinet meeting.
-              </CardDescription>
+              <CardDescription>Set the agenda for today's cabinet meeting.</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">
@@ -83,17 +107,15 @@ export default function NewBriefPage() {
                   <Label htmlFor="title">Brief Title</Label>
                   <Input
                     id="title"
-                    placeholder="e.g. Thursday Strategy"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     required
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="goals">What are your main goals for today?</Label>
+                  <Label htmlFor="goals">Goals</Label>
                   <Textarea
                     id="goals"
-                    placeholder="e.g. Finish the project proposal, go for a run..."
                     className="min-h-[100px]"
                     value={formData.goals}
                     onChange={(e) => setFormData({ ...formData, goals: e.target.value })}
@@ -101,19 +123,17 @@ export default function NewBriefPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="constraints">Any constraints or blockers?</Label>
+                  <Label htmlFor="constraints">Constraints</Label>
                   <Textarea
                     id="constraints"
-                    placeholder="e.g. Meeting at 2pm, low energy in the afternoon..."
                     value={formData.constraints}
                     onChange={(e) => setFormData({ ...formData, constraints: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="values">Core values for today (comma-separated)</Label>
+                  <Label htmlFor="values">Values (comma-separated)</Label>
                   <Input
                     id="values"
-                    placeholder="e.g. Health, Focus, Family"
                     value={formData.values}
                     onChange={(e) => setFormData({ ...formData, values: e.target.value })}
                   />
@@ -122,7 +142,7 @@ export default function NewBriefPage() {
                   {isLoading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Calling the Cabinet...
+                      {progress}
                     </>
                   ) : (
                     <>
@@ -139,4 +159,3 @@ export default function NewBriefPage() {
     </div>
   )
 }
-
