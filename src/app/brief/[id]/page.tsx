@@ -184,39 +184,53 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
     return elapsed >= DEBATE_TIMEOUT_MS
   }
 
-  // Run a single debate turn
+  // Run a single debate turn - returns null if minister not found
   const runTurn = async (
     token: string,
     ministerId: string,
     turnType: string,
     turnIndex: number,
     previousStatements?: string
-  ) => {
-    const res = await fetch('/.netlify/functions/briefs-debate-turn', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        brief_id: id,
-        minister_id: ministerId,
-        turn_type: turnType,
-        turn_index: turnIndex,
-        previous_statements: previousStatements,
-        user_interjection: pendingInterjection,
-      }),
-    })
+  ): Promise<any | null> => {
+    try {
+      const res = await fetch('/.netlify/functions/briefs-debate-turn', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          brief_id: id,
+          minister_id: ministerId,
+          turn_type: turnType,
+          turn_index: turnIndex,
+          previous_statements: previousStatements,
+          user_interjection: pendingInterjection,
+        }),
+      })
 
-    // Clear interjection after use
-    if (pendingInterjection) setPendingInterjection(null)
+      // Clear interjection after use
+      if (pendingInterjection) setPendingInterjection(null)
 
-    if (!res.ok) {
-      const error = await res.json()
-      throw new Error(error.error || 'Turn failed')
+      if (!res.ok) {
+        const error = await res.json()
+        // If minister not found, skip them instead of failing entire debate
+        if (error.error?.includes('Minister not found')) {
+          console.warn(`Skipping minister ${ministerId}: ${error.error}`)
+          return null
+        }
+        throw new Error(error.error || 'Turn failed')
+      }
+
+      return res.json()
+    } catch (error: any) {
+      console.error(`Error in turn for minister ${ministerId}:`, error)
+      // Return null to skip this minister rather than fail the whole debate
+      if (error.message?.includes('Minister not found')) {
+        return null
+      }
+      throw error
     }
-
-    return res.json()
   }
 
   // Start full debate with 2-minute timeout
@@ -272,6 +286,8 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
       for (const minister of regularMinisters) {
         setActiveMinisterId(minister.id)
         const result = await runTurn(session.access_token, minister.id, 'opening', turnIndex++)
+        // Skip if minister was not found
+        if (!result) continue
         openingStatements.push({ minister, content: result.content, vote: result.vote })
         addToTranscript(result.message)
         setResponses(prev => [...prev, {
@@ -288,7 +304,7 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
       }
 
       // ROUND 2: Rebuttals (if time remains)
-      if (!timedOut && regularMinisters.length > 1) {
+      if (!timedOut && regularMinisters.length > 1 && openingStatements.length > 0) {
         setCurrentPhase('Rebuttals')
         addSystemMessage('🔄 Rebuttal round. Ministers respond to each other.', turnIndex++)
 
@@ -305,7 +321,7 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
             .join('\n\n')
 
           const result = await runTurn(session.access_token, minister.id, 'rebuttal', turnIndex++, othersStatements)
-          addToTranscript(result.message)
+          if (result) addToTranscript(result.message)
         }
       }
 
@@ -321,7 +337,7 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
           setActiveMinisterId(oppositionLeader.id)
           const allStatements = openingStatements.map(s => `${s.minister.name}: ${s.content}`).join('\n\n')
           const result = await runTurn(session.access_token, oppositionLeader.id, 'cross_exam', turnIndex++, allStatements)
-          addToTranscript(result.message)
+          if (result) addToTranscript(result.message)
         }
       }
 
@@ -346,7 +362,7 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
             ).join('\n\n')
             
             const result = await runTurn(session.access_token, minister.id, 'closing', turnIndex++, fullDiscussion)
-            addToTranscript(result.message)
+            if (result) addToTranscript(result.message)
           }
         }
       }
@@ -362,15 +378,17 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
           .join('\n\n')
 
         const result = await runTurn(session.access_token, pmMinister.id, 'synthesis', turnIndex++, fullTranscript)
-        addToTranscript(result.message)
-        
-        if (result.synthesis) {
-          setResponses(prev => [...prev, {
-            cabinet_member_id: pmMinister.id,
-            response_text: JSON.stringify(result.synthesis),
-            vote: 'abstain',
-            metadata: { type: 'synthesis' },
-          }])
+        if (result) {
+          addToTranscript(result.message)
+          
+          if (result.synthesis) {
+            setResponses(prev => [...prev, {
+              cabinet_member_id: pmMinister.id,
+              response_text: JSON.stringify(result.synthesis),
+              vote: 'abstain',
+              metadata: { type: 'synthesis' },
+            }])
+          }
         }
       }
 

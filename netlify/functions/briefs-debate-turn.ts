@@ -61,11 +61,19 @@ export const handler = async (event: any) => {
     } = JSON.parse(event.body)
 
     // Load data
-    const [{ data: brief }, { data: minister }] = await Promise.all([
+    const [{ data: brief, error: briefError }, { data: minister, error: ministerError }] = await Promise.all([
       supabase.from('briefs').select('*').eq('id', brief_id).single(),
       supabase.from('cabinet_members').select('*').eq('id', minister_id).single()
     ])
 
+    if (briefError) {
+      console.error('Brief load error:', briefError)
+      throw new Error(`Brief not found: ${brief_id}`)
+    }
+    if (ministerError) {
+      console.error('Minister load error:', ministerError)
+      throw new Error(`Minister not found: ${minister_id}. They may have been deleted or archived.`)
+    }
     if (!brief || !minister) throw new Error('Brief or Minister not found')
 
     const context = brief.input_context
