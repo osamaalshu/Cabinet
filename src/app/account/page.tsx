@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { updateProfileAction } from '@/lib/supabase/actions'
 import { Navbar } from '@/components/common/Navbar'
 import { User, Mail, Lock, Save, Loader2, Check } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -46,7 +45,23 @@ export default function AccountPage() {
     setIsSaving(true)
     setMessage(null)
     try {
-      await updateProfileAction({ display_name: profile.display_name })
+      // Try update first, then insert if profile doesn't exist
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ display_name: profile.display_name })
+        .eq('id', user.id)
+
+      if (updateError) {
+        // If update fails (no row), try insert
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert({ id: user.id, display_name: profile.display_name })
+        
+        if (insertError) {
+          throw insertError
+        }
+      }
+      
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch (error: any) {
