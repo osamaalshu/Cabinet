@@ -29,13 +29,14 @@ export function BriefCard({ brief }: { brief: Brief }) {
   }
 
   return (
-    <div className="relative group">
+    <div className="group flex items-center gap-3">
+      {/* Card */}
       <Link
         href={`/brief/${brief.id}`}
-        className="block p-5 bg-card border border-stone-dark rounded-lg hover:border-wine/30 transition-colors"
+        className="flex-1 p-5 bg-card border border-stone-dark rounded-lg hover:border-wine/30 transition-colors"
       >
         <div className="flex items-center justify-between">
-          <div className="pr-12">
+          <div>
             <h4 className="heading-serif text-lg text-ink group-hover:text-wine transition-colors">
               {brief.title}
             </h4>
@@ -57,17 +58,13 @@ export function BriefCard({ brief }: { brief: Brief }) {
         </div>
       </Link>
 
-      {/* Delete Button */}
+      {/* Delete Button - Outside the card */}
       <button
-        onClick={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          setShowConfirm(true)
-        }}
-        className="absolute right-16 top-1/2 -translate-y-1/2 p-2 opacity-0 group-hover:opacity-100 hover:bg-wine/10 rounded transition-all"
+        onClick={() => setShowConfirm(true)}
+        className="p-3 opacity-0 group-hover:opacity-100 hover:bg-wine/10 rounded-lg border border-transparent hover:border-wine/20 transition-all"
         title="Delete session"
       >
-        <Trash2 className="h-4 w-4 text-ink-muted hover:text-wine" />
+        <Trash2 className="h-4 w-4 text-ink-muted hover:text-wine transition-colors" />
       </button>
 
       {/* Delete Confirmation Modal */}
@@ -115,4 +112,3 @@ export function BriefCard({ brief }: { brief: Brief }) {
     </div>
   )
 }
-
