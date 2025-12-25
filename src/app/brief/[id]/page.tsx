@@ -22,68 +22,38 @@ interface DiscussionMessage {
   created_at: string
 }
 
+interface Minister {
+  id: string
+  name: string
+  role: string
+  model_name: string
+}
+
 type ViewMode = 'grid' | 'transcript'
 
 export default function BriefDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [brief, setBrief] = useState<any>(null)
-  const [ministers, setMinisters] = useState<any[]>([])
+  const [ministers, setMinisters] = useState<Minister[]>([])
   const [responses, setResponses] = useState<any[]>([])
   const [transcript, setTranscript] = useState<DiscussionMessage[]>([])
   const [activeMinisterId, setActiveMinisterId] = useState<string | null>(null)
+  const [currentPhase, setCurrentPhase] = useState<string>('')
   const [isProcessing, setIsProcessing] = useState(false)
-  const [isStartingDebate, setIsStartingDebate] = useState(false)
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('transcript')
   const supabase = createClient()
   const transcriptEndRef = useRef<HTMLDivElement>(null)
-  const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Scroll to bottom of transcript
   const scrollToBottom = useCallback(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
 
-  // Poll for new messages
-  const pollMessages = useCallback(async () => {
-    const { data } = await supabase
-      .from('discussion_messages')
-      .select('*')
-      .eq('brief_id', id)
-      .order('turn_index')
-      .order('created_at')
-
-    if (data) {
-      setTranscript(prev => {
-        if (data.length !== prev.length) {
-          setTimeout(scrollToBottom, 100)
-        }
-        return data
-      })
-
-      // Update active speaker
-      const lastNonSystem = data.filter(m => m.message_type !== 'system').pop()
-      if (lastNonSystem) {
-        setActiveMinisterId(lastNonSystem.speaker_member_id)
-      }
-    }
-  }, [id, supabase, scrollToBottom])
-
-  // Start/stop polling
-  useEffect(() => {
-    if (isProcessing) {
-      pollingRef.current = setInterval(pollMessages, 1500)
-    } else {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current)
-        pollingRef.current = null
-      }
-    }
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current)
-    }
-  }, [isProcessing, pollMessages])
+  const addToTranscript = useCallback((msg: DiscussionMessage) => {
+    setTranscript(prev => [...prev, msg])
+    setTimeout(scrollToBottom, 100)
+  }, [scrollToBottom])
 
   // Initial load
   useEffect(() => {
@@ -101,7 +71,8 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       const briefData = briefRes.data
       if (profileRes.data) setProfile(profileRes.data)
 
-      const { data: members } = await supabase.from('cabinet_members')
+      const { data: members } = await supabase
+        .from('cabinet_members')
         .select('*')
         .eq('user_id', briefData.user_id)
         .eq('is_enabled', true)
@@ -119,63 +90,196 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       setMinisters(members || [])
       setResponses(briefData.brief_responses || [])
       setTranscript(messages || [])
-
-      // Check if debate is in progress
-      if (briefData.status === 'running') {
-        setIsProcessing(true)
-      }
     }
 
     initSession()
   }, [id, supabase])
 
-  // Start debate
+  // Run a single debate turn
+  const runTurn = async (
+    token: string,
+    ministerId: string,
+    turnType: string,
+    turnIndex: number,
+    previousStatements?: string
+  ) => {
+    const res = await fetch('/.netlify/functions/briefs-debate-turn', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        brief_id: id,
+        minister_id: ministerId,
+        turn_type: turnType,
+        turn_index: turnIndex,
+        previous_statements: previousStatements,
+      }),
+    })
+
+    if (!res.ok) {
+      const error = await res.json()
+      throw new Error(error.error || 'Turn failed')
+    }
+
+    return res.json()
+  }
+
+  // Start full debate - client orchestrates, server handles each turn
   const startDebate = async () => {
     if (!user) return
     
-    setIsStartingDebate(true)
-    setIsProcessing(true)
-    setViewMode('transcript')
-
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) return
 
+    setIsProcessing(true)
+    setViewMode('transcript')
+
+    // Update brief status
+    await supabase.from('briefs').update({ status: 'running' }).eq('id', id)
+
+    const regularMinisters = ministers.filter(m => m.role !== 'Synthesizer')
+    const pmMinister = ministers.find(m => m.role === 'Synthesizer')
+    
+    let turnIndex = 0
+    const openingStatements: { minister: Minister; content: string; vote?: string }[] = []
+
     try {
-      const res = await fetch('/.netlify/functions/briefs-run-debate', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({ brief_id: id }),
-      })
+      // System message: Opening
+      setCurrentPhase('Opening Statements')
+      const systemMsg: DiscussionMessage = {
+        id: `sys-${Date.now()}`,
+        brief_id: id,
+        turn_index: turnIndex++,
+        speaker_member_id: null,
+        speaker_role: 'system',
+        message_type: 'system',
+        content: '📢 The Cabinet session begins. Ministers will present their opening statements.',
+        metadata: { phase: 'opening' },
+        created_at: new Date().toISOString(),
+      }
+      addToTranscript(systemMsg)
+      await supabase.from('discussion_messages').insert(systemMsg)
 
-      if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.error || 'Failed to start debate')
+      // ROUND 1: Opening Statements (sequential for live effect)
+      for (const minister of regularMinisters) {
+        setActiveMinisterId(minister.id)
+        
+        const result = await runTurn(session.access_token, minister.id, 'opening', turnIndex++)
+        
+        openingStatements.push({ 
+          minister, 
+          content: result.content, 
+          vote: result.vote 
+        })
+
+        // Add to local transcript
+        addToTranscript(result.message)
+        setResponses(prev => [...prev, {
+          cabinet_member_id: minister.id,
+          response_text: result.content,
+          vote: result.vote,
+        }])
       }
 
-      // Final poll
-      await pollMessages()
-      
-      // Refresh brief status
-      const { data: updatedBrief } = await supabase
-        .from('briefs')
-        .select('*, brief_responses(*)')
-        .eq('id', id)
-        .single()
-      
-      if (updatedBrief) {
-        setBrief(updatedBrief)
-        setResponses(updatedBrief.brief_responses || [])
+      // ROUND 2: Rebuttals (if more than 2 ministers)
+      if (regularMinisters.length > 2) {
+        setCurrentPhase('Rebuttals')
+        
+        const rebuttalSystemMsg: DiscussionMessage = {
+          id: `sys-rebuttal-${Date.now()}`,
+          brief_id: id,
+          turn_index: turnIndex++,
+          speaker_member_id: null,
+          speaker_role: 'system',
+          message_type: 'system',
+          content: '🔄 Rebuttal round. Ministers respond to their colleagues.',
+          metadata: { phase: 'rebuttal' },
+          created_at: new Date().toISOString(),
+        }
+        addToTranscript(rebuttalSystemMsg)
+        await supabase.from('discussion_messages').insert(rebuttalSystemMsg)
+
+        const allStatements = openingStatements
+          .map(s => `${s.minister.name}: ${s.content}`)
+          .join('\n\n')
+
+        for (const minister of regularMinisters) {
+          setActiveMinisterId(minister.id)
+          
+          const othersStatements = openingStatements
+            .filter(s => s.minister.id !== minister.id)
+            .map(s => `${s.minister.name}: ${s.content}`)
+            .join('\n\n')
+
+          const result = await runTurn(
+            session.access_token, 
+            minister.id, 
+            'rebuttal', 
+            turnIndex++,
+            othersStatements
+          )
+
+          addToTranscript(result.message)
+        }
       }
+
+      // ROUND 3: PM Synthesis
+      if (pmMinister) {
+        setCurrentPhase('Prime Minister Synthesis')
+        
+        const synthSystemMsg: DiscussionMessage = {
+          id: `sys-synth-${Date.now()}`,
+          brief_id: id,
+          turn_index: turnIndex++,
+          speaker_member_id: null,
+          speaker_role: 'system',
+          message_type: 'system',
+          content: '👑 The Prime Minister will now synthesize the discussion.',
+          metadata: { phase: 'synthesis' },
+          created_at: new Date().toISOString(),
+        }
+        addToTranscript(synthSystemMsg)
+        await supabase.from('discussion_messages').insert(synthSystemMsg)
+
+        setActiveMinisterId(pmMinister.id)
+
+        const fullTranscript = openingStatements
+          .map(s => `${s.minister.name} (${s.vote}): ${s.content}`)
+          .join('\n\n')
+
+        const result = await runTurn(
+          session.access_token,
+          pmMinister.id,
+          'synthesis',
+          turnIndex++,
+          fullTranscript
+        )
+
+        addToTranscript(result.message)
+        
+        if (result.synthesis) {
+          setResponses(prev => [...prev, {
+            cabinet_member_id: pmMinister.id,
+            response_text: JSON.stringify(result.synthesis),
+            vote: 'abstain',
+            metadata: { type: 'synthesis' },
+          }])
+        }
+      }
+
+      // Done
+      await supabase.from('briefs').update({ status: 'done' }).eq('id', id)
+      setBrief((prev: any) => ({ ...prev, status: 'done' }))
+
     } catch (error: any) {
       console.error('Debate error:', error)
       alert('Error: ' + error.message)
     } finally {
       setIsProcessing(false)
-      setIsStartingDebate(false)
       setActiveMinisterId(null)
+      setCurrentPhase('')
     }
   }
 
@@ -191,7 +295,7 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
   const pmData = pmResponse ? JSON.parse(pmResponse.response_text) : null
   const councilMembers = ministers.filter(m => m.role !== 'Synthesizer')
   const hasTranscript = transcript.length > 0
-  const canStartDebate = brief.status === 'queued' || (brief.status === 'running' && !hasTranscript)
+  const canStartDebate = brief.status === 'queued' || (brief.status !== 'done' && !hasTranscript)
 
   const getSeatState = (ministerId: string): SeatState => {
     if (activeMinisterId === ministerId) return 'speaking'
@@ -212,7 +316,7 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
   return (
     <Chamber
       title={brief.title}
-      subtitle={isProcessing ? 'Debate in progress...' : (hasTranscript ? 'Deliberation complete' : 'Ready to begin')}
+      subtitle={isProcessing ? currentPhase || 'Debate in progress...' : (hasTranscript ? 'Deliberation complete' : 'Ready to begin')}
       isInSession={isProcessing}
       userEmail={user?.email}
       userName={profile?.display_name}
@@ -223,9 +327,7 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
           <button
             onClick={() => setViewMode('transcript')}
             className={`flex items-center gap-2 px-4 py-2 rounded-md body-sans text-sm transition-all ${
-              viewMode === 'transcript' 
-                ? 'bg-marble text-ink shadow-sm' 
-                : 'text-ink-muted hover:text-ink'
+              viewMode === 'transcript' ? 'bg-marble text-ink shadow-sm' : 'text-ink-muted hover:text-ink'
             }`}
           >
             <MessageSquare className="h-4 w-4" />
@@ -234,9 +336,7 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
           <button
             onClick={() => setViewMode('grid')}
             className={`flex items-center gap-2 px-4 py-2 rounded-md body-sans text-sm transition-all ${
-              viewMode === 'grid' 
-                ? 'bg-marble text-ink shadow-sm' 
-                : 'text-ink-muted hover:text-ink'
+              viewMode === 'grid' ? 'bg-marble text-ink shadow-sm' : 'text-ink-muted hover:text-ink'
             }`}
           >
             <Users className="h-4 w-4" />
@@ -247,15 +347,11 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
         {canStartDebate && (
           <button
             onClick={startDebate}
-            disabled={isStartingDebate}
+            disabled={isProcessing}
             className="inline-flex items-center gap-2 px-6 py-2 bg-wine text-white rounded-lg body-sans font-medium hover:bg-wine-light transition-colors disabled:opacity-50"
           >
-            {isStartingDebate ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Play className="h-4 w-4" />
-            )}
-            {isStartingDebate ? 'Starting...' : 'Start Debate'}
+            {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            {isProcessing ? 'Running...' : 'Start Debate'}
           </button>
         )}
       </div>
@@ -273,7 +369,7 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
 
           {hasTranscript && (
             <div className="space-y-4">
-              {transcript.map((msg, i) => (
+              {transcript.map((msg) => (
                 <TranscriptMessage 
                   key={msg.id} 
                   message={msg} 
@@ -288,7 +384,7 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
           {isProcessing && (
             <div className="flex items-center justify-center gap-2 py-8 text-ink-muted">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="body-sans text-sm">Ministers are deliberating...</span>
+              <span className="body-sans text-sm">{currentPhase || 'Ministers are deliberating...'}</span>
             </div>
           )}
         </div>
@@ -368,27 +464,26 @@ function TranscriptMessage({
     )
   }
 
-  // Parse synthesis content
   let displayContent = message.content
   if (isSynthesis) {
     try {
       const synth = JSON.parse(message.content)
       displayContent = synth.summary || message.content
     } catch {
-      // Keep original content if not valid JSON
+      // Keep original
     }
   }
 
   const typeLabels: Record<string, string> = {
-    opening: 'Opening Statement',
+    opening: 'Opening',
     rebuttal: 'Rebuttal',
-    cross_exam: 'Cross-Examination',
+    cross_exam: 'Cross-Exam',
     synthesis: 'Synthesis',
     vote: 'Vote',
   }
 
   const typeColors: Record<string, string> = {
-    opening: 'bg-stone',
+    opening: 'bg-stone text-ink-muted',
     rebuttal: 'bg-blue-100 text-blue-800',
     cross_exam: 'bg-wine/10 text-wine',
     synthesis: 'bg-gold/20 text-gold-muted',
@@ -420,9 +515,7 @@ function TranscriptMessage({
           </span>
         )}
       </div>
-      <p className="body-sans text-sm text-ink-muted leading-relaxed">
-        {displayContent}
-      </p>
+      <p className="body-sans text-sm text-ink-muted leading-relaxed">{displayContent}</p>
       {isActive && (
         <div className="mt-2 flex items-center gap-1 text-wine">
           <Loader2 className="h-3 w-3 animate-spin" />
