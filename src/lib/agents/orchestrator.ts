@@ -36,20 +36,29 @@ export async function runMinister(minister: Minister, context: BriefContext) {
     3. "justification": A 1-sentence justification for your vote.
   `
 
-  const response = await openai.chat.completions.create({
-    model: minister.model_name,
-    messages: [
-      { role: 'system', content: minister.system_prompt },
-      { role: 'user', content: prompt },
-    ],
-    temperature: minister.temperature,
-    response_format: { type: 'json_object' },
-  })
+  try {
+    const response = await openai.chat.completions.create({
+      model: minister.model_name,
+      messages: [
+        { role: 'system', content: minister.system_prompt },
+        { role: 'user', content: prompt },
+      ],
+      temperature: minister.temperature,
+      response_format: { type: 'json_object' },
+    })
 
-  const content = response.choices[0].message.content
-  if (!content) throw new Error('No content returned from OpenAI')
+    const content = response.choices[0].message.content
+    if (!content) throw new Error('No content returned from OpenAI')
 
-  return JSON.parse(content)
+    return JSON.parse(content)
+  } catch (error: any) {
+    console.error(`Error running minister ${minister.name}:`, error.message)
+    return {
+      response_text: `Error: ${error.message}`,
+      vote: 'abstain',
+      justification: 'Failed to connect to AI service.'
+    }
+  }
 }
 
 export async function runPrimeMinister(
