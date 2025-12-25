@@ -15,7 +15,6 @@ export default function NewBriefPage() {
   const router = useRouter()
   const supabase = createClient()
   const [isLoading, setIsLoading] = useState(false)
-  const [progress, setProgress] = useState('')
   const [formData, setFormData] = useState({
     title: '',
     goals: '',
@@ -26,13 +25,11 @@ export default function NewBriefPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    setProgress('Initializing the Cabinet...')
 
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return router.push('/login')
 
-      // 1. Create the Brief
       const createRes = await fetch('/.netlify/functions/briefs-create', {
         method: 'POST',
         headers: { 
@@ -49,44 +46,12 @@ export default function NewBriefPage() {
         }),
       })
 
-      const { brief_id, ministers } = await createRes.json()
-      
-      const regularMinisters = ministers.filter((m: any) => m.role !== 'Synthesizer')
-      const pm = ministers.find((m: any) => m.role === 'Synthesizer')
-
-      // 2. Run each minister sequentially
-      for (const m of regularMinisters) {
-        setProgress(`Consulting ${m.role}...`)
-        await fetch('/.netlify/functions/briefs-process-agent', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`
-          },
-          body: JSON.stringify({ brief_id, cabinet_member_id: m.id, is_pm: false }),
-        })
-      }
-
-      // 3. Run Prime Minister
-      if (pm) {
-        setProgress('Prime Minister is synthesizing...')
-        await fetch('/.netlify/functions/briefs-process-agent', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`
-          },
-          body: JSON.stringify({ brief_id, cabinet_member_id: pm.id, is_pm: true }),
-        })
-      }
-
-      // 4. Mark Done and Redirect
-      await supabase.from('briefs').update({ status: 'done' }).eq('id', brief_id)
+      const { brief_id } = await createRes.json()
+      // Redirect immediately to the live session page
       router.push(`/brief/${brief_id}`)
     } catch (error: any) {
       console.error(error)
-      alert(`Meeting interrupted: ${error.message}`)
-    } finally {
+      alert(`Error initializing the Cabinet: ${error.message}`)
       setIsLoading(false)
     }
   }
@@ -99,7 +64,7 @@ export default function NewBriefPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-2xl">New Morning Brief</CardTitle>
-              <CardDescription>Set the agenda for today's cabinet meeting.</CardDescription>
+              <CardDescription>Assemble the Cabinet to deliberate on your agenda.</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">
@@ -138,15 +103,15 @@ export default function NewBriefPage() {
                     onChange={(e) => setFormData({ ...formData, values: e.target.value })}
                   />
                 </div>
-                <Button className="w-full" type="submit" disabled={isLoading}>
+                <Button className="w-full h-12 text-lg" type="submit" disabled={isLoading}>
                   {isLoading ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {progress}
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      Assembling Cabinet...
                     </>
                   ) : (
                     <>
-                      <Send className="mr-2 h-4 w-4" />
+                      <Send className="mr-2 h-5 w-5" />
                       Call the Cabinet
                     </>
                   )}
