@@ -18,15 +18,11 @@ export default function LoginPage() {
     setIsLoading(true)
     setMessage(null)
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password: 'password', // For simplicity in this example, or use magic link
-    })
-
-    // The spec mentioned magic link, so let's use that instead
+    // Using only Magic Link as per spec
     const { error: magicLinkError } = await supabase.auth.signInWithOtp({
       email,
       options: {
+        // window.location.origin captures the EXACT port you are currently using
         emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     })
@@ -34,7 +30,7 @@ export default function LoginPage() {
     if (magicLinkError) {
       setMessage({ type: 'error', text: magicLinkError.message })
     } else {
-      setMessage({ type: 'success', text: 'Check your email for the magic link!' })
+      setMessage({ type: 'success', text: 'Check your email! Click the link to sign in.' })
     }
     setIsLoading(false)
   }
@@ -60,7 +56,7 @@ export default function LoginPage() {
               />
             </div>
             {message && (
-              <div className={`text-sm ${message.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+              <div className={`text-sm ${message.type === 'success' ? 'text-green-600' : 'text-red-600'} p-2 bg-gray-100 rounded`}>
                 {message.text}
               </div>
             )}
@@ -68,10 +64,12 @@ export default function LoginPage() {
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Send Magic Link
             </Button>
+            <p className="text-xs text-center text-gray-400">
+              Current Origin: {typeof window !== 'undefined' ? window.location.origin : '...'}
+            </p>
           </form>
         </CardContent>
       </Card>
     </div>
   )
 }
-
