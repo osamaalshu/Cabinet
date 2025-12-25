@@ -4,11 +4,13 @@ import { useEffect, useState, use } from 'react'
 import { Chamber } from '@/components/cabinet/Chamber'
 import { Seat, SeatState, VoteType } from '@/components/cabinet/Seat'
 import { Podium } from '@/components/cabinet/Podium'
-import { Loader2 } from 'lucide-react'
+import { Loader2, LayoutGrid, Circle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { motion, AnimatePresence } from 'framer-motion'
 
 export const dynamic = 'force-dynamic'
+
+type LayoutMode = 'circle' | 'grid'
 
 export default function BriefDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -19,6 +21,7 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
   const [isProcessing, setIsProcessing] = useState(false)
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
+  const [layout, setLayout] = useState<LayoutMode>('circle')
   const supabase = createClient()
 
   useEffect(() => {
@@ -107,6 +110,15 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
     return responses.find(r => r.cabinet_member_id === ministerId)
   }
 
+  // Calculate positions for circular layout
+  const getCircularPosition = (index: number, total: number) => {
+    const angle = (-90 + (index * 360 / total)) * (Math.PI / 180)
+    const radius = 280
+    const x = radius * Math.cos(angle)
+    const y = radius * Math.sin(angle)
+    return { x, y }
+  }
+
   return (
     <Chamber
       title={brief.title}
@@ -115,66 +127,42 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       userEmail={user?.email}
       userName={profile?.display_name}
     >
-      {/* The Round Table */}
-      <div className="relative w-full flex justify-center py-8 overflow-x-auto">
-        <div className="relative" style={{ width: '1000px', height: '800px', minWidth: '1000px' }}>
-          {/* Central Table Surface - positioned in exact center */}
-          <div 
-            className="absolute rounded-full border-4 border-stone-dark bg-gradient-to-br from-stone to-stone-dark shadow-inner"
-            style={{ 
-              width: '180px', 
-              height: '180px', 
-              left: '500px', 
-              top: '400px', 
-              transform: 'translate(-50%, -50%)' 
-            }} 
-          />
-          <div 
-            className="absolute rounded-full border border-stone bg-marble-warm"
-            style={{ 
-              width: '150px', 
-              height: '150px', 
-              left: '500px', 
-              top: '400px', 
-              transform: 'translate(-50%, -50%)' 
-            }} 
-          />
-          
-          {/* Center Label */}
-          <div 
-            className="absolute flex flex-col items-center justify-center text-center z-10"
-            style={{ left: '500px', top: '400px', transform: 'translate(-50%, -50%)' }}
+      {/* Layout Toggle */}
+      <div className="flex justify-center mb-6">
+        <div className="inline-flex items-center gap-1 p-1 bg-stone/50 rounded-lg">
+          <button
+            onClick={() => setLayout('circle')}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded body-sans text-sm transition-colors ${
+              layout === 'circle' ? 'bg-marble text-ink shadow-sm' : 'text-ink-muted hover:text-ink'
+            }`}
           >
-            <span className="heading-serif text-sm text-ink-muted">The</span>
-            <span className="heading-display text-xl text-ink">Round Table</span>
-          </div>
+            <Circle className="h-4 w-4" />
+            Round Table
+          </button>
+          <button
+            onClick={() => setLayout('grid')}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded body-sans text-sm transition-colors ${
+              layout === 'grid' ? 'bg-marble text-ink shadow-sm' : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            <LayoutGrid className="h-4 w-4" />
+            Grid View
+          </button>
+        </div>
+      </div>
 
-          {/* Ministers arranged in a circle */}
+      {/* Grid Layout */}
+      {layout === 'grid' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl mx-auto">
           {councilMembers.map((m, i) => {
             const response = getResponse(m.id)
-            const total = councilMembers.length
-            // Start from top (-90deg) and distribute evenly
-            const angle = (-90 + (i * 360 / total)) * (Math.PI / 180)
-            const radius = 320 // pixels from center - large enough to clear the circle
-            const centerX = 500 // center of container
-            const centerY = 400 // center of container
-            const x = centerX + radius * Math.cos(angle)
-            const y = centerY + radius * Math.sin(angle)
             const isOpposition = m.role === 'Skeptic'
-
             return (
               <motion.div
                 key={m.id}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: i * 0.1, duration: 0.4 }}
-                className="absolute"
-                style={{
-                  width: '200px',
-                  left: `${x}px`,
-                  top: `${y}px`,
-                  transform: 'translate(-50%, -50%)',
-                }}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
               >
                 <Seat
                   name={m.name}
@@ -189,9 +177,58 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
             )
           })}
         </div>
-      </div>
+      )}
 
-      {/* Prime Minister's Podium - Below the table */}
+      {/* Circular Layout */}
+      {layout === 'circle' && (
+        <div className="flex justify-center py-8">
+          <div className="relative" style={{ width: '700px', height: '700px' }}>
+            {/* Central Table */}
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-40 h-40 rounded-full border-4 border-stone-dark bg-gradient-to-br from-stone to-stone-dark shadow-inner" />
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 rounded-full border border-stone bg-marble-warm" />
+            
+            {/* Center Label */}
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center text-center z-10">
+              <span className="heading-serif text-sm text-ink-muted">The</span>
+              <span className="heading-display text-lg text-ink">Round Table</span>
+            </div>
+
+            {/* Ministers */}
+            {councilMembers.map((m, i) => {
+              const response = getResponse(m.id)
+              const { x, y } = getCircularPosition(i, councilMembers.length)
+              const isOpposition = m.role === 'Skeptic'
+
+              return (
+                <motion.div
+                  key={m.id}
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: i * 0.1, duration: 0.4 }}
+                  className="absolute w-48"
+                  style={{
+                    left: `calc(50% + ${x}px)`,
+                    top: `calc(50% + ${y}px)`,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                >
+                  <Seat
+                    name={m.name}
+                    role={m.role}
+                    state={getSeatState(m.id)}
+                    vote={response?.vote as VoteType}
+                    response={response?.response_text}
+                    isOpposition={isOpposition}
+                    onClick={() => {}}
+                  />
+                </motion.div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Prime Minister's Podium */}
       <div className="mt-8">
         <AnimatePresence>
           {pmData && (
