@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, Save } from 'lucide-react'
 
+export const dynamic = 'force-dynamic'
+
 export default function CabinetPage() {
   const [ministers, setMinisters] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)

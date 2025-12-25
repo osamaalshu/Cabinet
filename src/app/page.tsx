@@ -4,6 +4,8 @@ import { requireUser } from '@/lib/supabase/auth'
 import { Button } from '@/components/ui/button'
 import { PlusCircle, History } from 'lucide-react'
 
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardPage() {
   const user = await requireUser()
 

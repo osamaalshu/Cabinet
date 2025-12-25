@@ -7,6 +7,8 @@ import { BriefSummary } from '@/components/cabinet/BriefSummary'
 import { Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
+export const dynamic = 'force-dynamic'
+
 export default function BriefDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [brief, setBrief] = useState<any>(null)
