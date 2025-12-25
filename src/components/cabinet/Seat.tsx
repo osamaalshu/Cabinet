@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 
 export type SeatState = 'idle' | 'speaking' | 'responded'
-export type VoteType = 'approve' | 'abstain' | 'oppose'
+export type VoteType = 'yay' | 'nay' | 'abstain' | null
 
 interface SeatProps {
   name: string
@@ -13,124 +13,79 @@ interface SeatProps {
   vote?: VoteType
   response?: string
   isOpposition?: boolean
-  className?: string
-  style?: React.CSSProperties
   onClick?: () => void
 }
 
-const voteStyles: Record<VoteType, string> = {
-  approve: 'text-approve border-approve/30 bg-approve/5',
-  oppose: 'text-oppose border-oppose/30 bg-oppose/5',
-  abstain: 'text-abstain border-abstain/30 bg-abstain/5',
-}
-
-const voteLabels: Record<VoteType, string> = {
-  approve: 'Aye',
-  oppose: 'Nay',
-  abstain: 'Abstains',
-}
-
-export function Seat({ 
-  name, 
-  role, 
-  state, 
-  vote, 
-  response, 
-  isOpposition,
-  className,
-  style,
-  onClick 
-}: SeatProps) {
+export function Seat({ name, role, state, vote, response, isOpposition, onClick }: SeatProps) {
+  const isActive = state === 'speaking'
   const hasResponse = state === 'responded' && response
-
+  
   return (
     <motion.div
-      layout
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
       onClick={onClick}
-      style={style}
       className={cn(
-        'seat relative cursor-pointer',
-        'rounded-lg border bg-card p-5',
-        'transition-all duration-500',
-        state === 'speaking' && 'seat--speaking animate-speak border-wine',
-        state === 'idle' && 'seat--idle border-stone-dark',
-        state === 'responded' && 'border-stone-dark hover:border-wine/50',
-        isOpposition && 'border-l-4 border-l-oppose',
-        className
+        'relative rounded-lg border-2 p-4 cursor-pointer transition-all duration-300',
+        'bg-marble hover:shadow-lg',
+        isActive && 'border-wine shadow-xl ring-2 ring-wine/20',
+        hasResponse && !isActive && 'border-stone-dark',
+        !hasResponse && !isActive && 'border-stone',
+        isOpposition && 'border-l-4 border-l-wine-dark'
       )}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
     >
-      {/* Speaking Indicator */}
-      {state === 'speaking' && (
+      {/* Speaking indicator */}
+      {isActive && (
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="absolute -top-2 left-1/2 -translate-x-1/2 px-3 py-1 bg-wine text-white text-xs font-medium rounded-full"
+          className="absolute -top-1 -right-1 bg-wine text-marble text-xs px-2 py-0.5 rounded-full"
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
         >
           Speaking...
         </motion.div>
       )}
 
       {/* Header */}
-      <div className="mb-3">
-        <h3 className="heading-serif text-lg text-ink leading-tight">{name}</h3>
-        <p className="body-sans text-xs text-ink-muted uppercase tracking-widest mt-0.5">
-          {role}
-        </p>
+      <div className="mb-2">
+        <h3 className="heading-serif text-sm text-ink truncate">{name}</h3>
+        <p className="text-[10px] uppercase tracking-widest text-ink-muted">{role}</p>
       </div>
 
       {/* Content */}
-      {state === 'speaking' && (
-        <div className="flex items-center justify-center py-6">
-          <div className="flex gap-1">
-            <motion.span
-              animate={{ opacity: [0.3, 1, 0.3] }}
-              transition={{ duration: 1.2, repeat: Infinity, delay: 0 }}
-              className="w-2 h-2 rounded-full bg-wine"
-            />
-            <motion.span
-              animate={{ opacity: [0.3, 1, 0.3] }}
-              transition={{ duration: 1.2, repeat: Infinity, delay: 0.2 }}
-              className="w-2 h-2 rounded-full bg-wine"
-            />
-            <motion.span
-              animate={{ opacity: [0.3, 1, 0.3] }}
-              transition={{ duration: 1.2, repeat: Infinity, delay: 0.4 }}
-              className="w-2 h-2 rounded-full bg-wine"
-            />
-          </div>
-        </div>
-      )}
-
-      {state === 'idle' && (
-        <div className="flex items-center justify-center py-6">
-          <div className="w-10 h-10 rounded-full bg-stone border-2 border-stone-dark" />
-        </div>
-      )}
-
-      {hasResponse && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <p className="body-sans text-sm text-ink-light leading-relaxed line-clamp-4">
+      {hasResponse ? (
+        <div className="space-y-2">
+          <p className="body-sans text-xs text-ink-muted line-clamp-4">
             {response}
           </p>
           
           {vote && (
             <div className={cn(
-              'mt-4 inline-flex items-center px-3 py-1.5 rounded border text-xs font-medium uppercase tracking-wider',
-              voteStyles[vote]
+              'inline-block px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider',
+              vote === 'yay' && 'bg-green-100 text-green-800',
+              vote === 'nay' && 'bg-wine/10 text-wine',
+              vote === 'abstain' && 'bg-stone text-ink-muted'
             )}>
-              {voteLabels[vote]}
+              {vote}
             </div>
           )}
-        </motion.div>
+        </div>
+      ) : (
+        <div className="h-12 flex items-center justify-center">
+          {isActive ? (
+            <motion.div
+              className="flex gap-1"
+              animate={{ opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+            >
+              <span className="w-1.5 h-1.5 bg-wine rounded-full" />
+              <span className="w-1.5 h-1.5 bg-wine rounded-full" />
+              <span className="w-1.5 h-1.5 bg-wine rounded-full" />
+            </motion.div>
+          ) : (
+            <div className="w-8 h-8 rounded-full border-2 border-stone bg-marble-warm" />
+          )}
+        </div>
       )}
     </motion.div>
   )
 }
-

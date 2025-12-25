@@ -10,17 +10,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 export const dynamic = 'force-dynamic'
 
-// Fixed seat positions for a semi-circular arrangement (5 ministers + opposition)
-const SEAT_POSITIONS = [
-  { top: '45%', left: '5%', transform: 'translateY(-50%)' },   // Left edge
-  { top: '15%', left: '15%' },                                   // Top-left
-  { top: '0%', left: '50%', transform: 'translateX(-50%)' },    // Top center
-  { top: '15%', right: '15%' },                                  // Top-right
-  { top: '45%', right: '5%', transform: 'translateY(-50%)' },  // Right edge
-]
-
-const OPPOSITION_POSITION = { bottom: '0%', left: '50%', transform: 'translateX(-50%)' }
-
 export default function BriefDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [brief, setBrief] = useState<any>(null)
@@ -96,9 +85,8 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
   const pmResponse = responses.find((r: any) => r.metadata?.type === 'synthesis')
   const pmData = pmResponse ? JSON.parse(pmResponse.response_text) : null
   
-  // Separate ministers: regular vs opposition
-  const regularMinisters = ministers.filter(m => m.role !== 'Synthesizer' && m.role !== 'Skeptic')
-  const opposition = ministers.find(m => m.role === 'Skeptic')
+  // Get all ministers except PM
+  const councilMembers = ministers.filter(m => m.role !== 'Synthesizer')
 
   const getSeatState = (ministerId: string): SeatState => {
     if (activeMinisterId === ministerId) return 'speaking'
@@ -117,75 +105,84 @@ export default function BriefDetailPage({ params }: { params: Promise<{ id: stri
       isInSession={isProcessing}
     >
       {/* The Round Table */}
-      <div className="relative mt-8 mb-16" style={{ minHeight: '500px' }}>
+      <div className="relative flex items-center justify-center py-8">
+        {/* Central Table Surface */}
+        <div className="absolute w-48 h-48 md:w-64 md:h-64 rounded-full border-4 border-stone-dark bg-gradient-to-br from-stone to-stone-dark shadow-inner" />
+        <div className="absolute w-40 h-40 md:w-56 md:h-56 rounded-full border border-stone bg-marble-warm" />
         
-        {/* Regular Ministers - Semi-circle arrangement */}
-        {regularMinisters.slice(0, 5).map((m, i) => {
-          const response = getResponse(m.id)
-          const position = SEAT_POSITIONS[i] || SEAT_POSITIONS[0]
-          
-          return (
-            <div
-              key={m.id}
-              className="absolute w-64"
-              style={position}
-            >
-              <Seat
-                name={m.name}
-                role={m.role}
-                state={getSeatState(m.id)}
-                vote={response?.vote as VoteType}
-                response={response?.response_text}
-                onClick={() => {}}
-              />
-            </div>
-          )
-        })}
+        {/* Center Label */}
+        <div className="absolute flex flex-col items-center justify-center text-center z-10">
+          <span className="heading-serif text-lg text-ink-muted">The</span>
+          <span className="heading-display text-2xl text-ink">Round Table</span>
+        </div>
 
-        {/* Opposition Leader - Separate position at bottom */}
-        {opposition && (
-          <div
-            className="absolute w-72"
-            style={OPPOSITION_POSITION}
-          >
-            <Seat
-              name={opposition.name}
-              role={opposition.role}
-              state={getSeatState(opposition.id)}
-              vote={getResponse(opposition.id)?.vote as VoteType}
-              response={getResponse(opposition.id)?.response_text}
-              isOpposition
-              onClick={() => {}}
-            />
+        {/* Ministers arranged in a circle */}
+        <div className="relative w-[700px] h-[700px] md:w-[850px] md:h-[850px]">
+          {councilMembers.map((m, i) => {
+            const response = getResponse(m.id)
+            const total = councilMembers.length
+            // Start from top (-90deg) and distribute evenly
+            const angle = (-90 + (i * 360 / total)) * (Math.PI / 180)
+            const radius = 42 // percentage from center
+            const x = 50 + radius * Math.cos(angle)
+            const y = 50 + radius * Math.sin(angle)
+            const isOpposition = m.role === 'Skeptic'
+
+            return (
+              <motion.div
+                key={m.id}
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.1, duration: 0.4 }}
+                className="absolute w-56 md:w-64"
+                style={{
+                  left: `${x}%`,
+                  top: `${y}%`,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              >
+                <Seat
+                  name={m.name}
+                  role={m.role}
+                  state={getSeatState(m.id)}
+                  vote={response?.vote as VoteType}
+                  response={response?.response_text}
+                  isOpposition={isOpposition}
+                  onClick={() => {}}
+                />
+              </motion.div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Prime Minister's Podium - Below the table */}
+      <div className="mt-8">
+        <AnimatePresence>
+          {pmData && (
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3, duration: 0.6 }}
+            >
+              <Podium
+                summary={pmData.summary}
+                options={pmData.options || []}
+                onSelectOption={(i) => console.log('Selected option:', i)}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Waiting for PM */}
+        {!pmData && !isProcessing && responses.length > 0 && (
+          <div className="text-center py-12">
+            <p className="body-sans text-ink-muted">
+              Awaiting the Prime Minister's synthesis...
+            </p>
           </div>
         )}
       </div>
-
-      {/* Prime Minister's Podium - Center Stage */}
-      <AnimatePresence>
-        {pmData && (
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.6 }}
-          >
-            <Podium
-              summary={pmData.summary}
-              options={pmData.options || []}
-              onSelectOption={(i) => console.log('Selected option:', i)}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Waiting for PM */}
-      {!pmData && !isProcessing && responses.length > 0 && (
-        <div className="text-center py-12">
-          <p className="body-sans text-ink-muted">
-            Awaiting the Prime Minister's synthesis...
-          </p>
-        </div>
-      )}
     </Chamber>
   )
 }
