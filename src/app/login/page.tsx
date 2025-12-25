@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,22 +9,39 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Loader2 } from 'lucide-react'
 
 export default function LoginPage() {
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   const supabase = createClient()
+
+  // Get the intended destination from URL params (set by middleware)
+  const nextPath = searchParams.get('next') || '/'
+  const errorParam = searchParams.get('error')
+
+  useEffect(() => {
+    if (errorParam === 'auth_failed') {
+      setMessage({ type: 'error', text: 'Authentication failed. Please try again.' })
+    } else if (errorParam === 'seeding_failed') {
+      setMessage({ type: 'error', text: 'Failed to initialize your account. Please try again.' })
+    }
+  }, [errorParam])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setMessage(null)
 
-    // Using only Magic Link as per spec
+    // Build the callback URL with the `next` destination preserved
+    const callbackUrl = new URL('/auth/callback', window.location.origin)
+    if (nextPath && nextPath !== '/') {
+      callbackUrl.searchParams.set('next', nextPath)
+    }
+
     const { error: magicLinkError } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        // window.location.origin captures the EXACT port you are currently using
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: callbackUrl.toString(),
       },
     })
 
@@ -64,9 +82,6 @@ export default function LoginPage() {
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Send Magic Link
             </Button>
-            <p className="text-xs text-center text-gray-400">
-              Current Origin: {typeof window !== 'undefined' ? window.location.origin : '...'}
-            </p>
           </form>
         </CardContent>
       </Card>

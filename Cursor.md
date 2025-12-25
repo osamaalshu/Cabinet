@@ -1,190 +1,80 @@
-# CURSOR_SPEC.md — Cabinet (Fake Government) Web App
+# Cabinet — Cursor Project Spec (Fake Government)
 
-## 0) One-liner
+## What this project is
 
-Build a web app called **Cabinet**: a fun “fake government” that runs daily cabinet meetings. The user enters goals/constraints/values, multiple AI “ministers” (agents) give competing advice, then a Prime Minister synthesizes options, ministers vote, and the user chooses. The system stores history and supports swapping different models per minister to compare personalities and reduce single-model bias.
+Cabinet is a web app that turns daily planning + reflection into a fun “cabinet meeting”.
+The user submits: goals, constraints, and values. Multiple AI ministers (agents) give distinct advice and vote.
+A Prime Minister agent synthesizes 2–3 actionable plans. The user chooses, and the system logs outcomes.
 
----
-
-## 1) Primary Goals (MVP)
-
-1. **Morning Brief**: user enters daily context; app generates multi-agent advice.
-2. **Cabinet Chamber UI**: ministers appear as cards around a “table”; each gives advice + vote.
-3. **Decision logging**: user picks a plan; store decision + notes.
-4. **Evening Audit**: simple reflection; Opposition agent highlights rationalizations.
-5. **Model-per-agent**: each minister has its own model/provider/temperature.
-6. **Deployable**: Netlify + Supabase with secrets server-side.
+This must feel like a “fake cabinet”: ministers have roles, personalities, and disagree on principle.
+User is sovereign: agents advise, never decide.
 
 ---
 
-## 2) Non-Goals (for MVP)
+## Product Goals (MVP)
 
-- No complex tool use (calendar/email) yet.
-- No multi-user collaboration features.
-- No heavy agent frameworks (LangGraph) in MVP; implement a simple orchestrator.
+1. Magic-link login (Supabase Auth).
+2. Dashboard: recent briefs + “Start Morning Brief”.
+3. Morning Brief form: goals, constraints, values -> “Call the Cabinet”.
+4. Cabinet Chamber page: minister cards + PM summary + votes + choose plan.
+5. Save decision and run Evening Audit.
+6. Model-per-agent configuration (provider/model/temp per minister).
+7. Deployable on Netlify. Secrets server-side only.
 
----
-
-## 3) Tech Stack
-
-### Frontend
-
-- Next.js (App Router), TypeScript, Tailwind
-- shadcn/ui components
-- Framer Motion (nice-to-have for “meeting start” animation)
-
-### Backend
-
-- Netlify Functions for server-side AI calls + DB writes
-- OpenAI Responses API for LLM calls (server-side only)
-
-### Database/Auth
-
-- Supabase Auth (magic link email)
-- Supabase Postgres with Row Level Security (RLS)
+Non-goals for MVP: calendar/email integrations, tool-use agents, multi-user teams, complicated debate graphs.
 
 ---
 
-## 4) Core UX Pages
+## Tech stack
 
-1. `/login`
-   - email magic link
-2. `/` Dashboard
-   - “Start Morning Brief”
-   - recent briefs list
-3. `/brief/new`
-   - form: goals, constraints, values
-   - button: “Call the Cabinet”
-4. `/brief/[id]`
-   - Cabinet Chamber UI
-   - minister cards + Prime Minister summary
-   - voting panel + “Choose Plan”
-   - “Evening Audit” button
-5. `/cabinet`
-   - enable/disable ministers
-   - configure model/provider/temp per minister
-6. `/evals` (MVP+)
-   - run the same scenario across different models & temps and compare outputs
+Frontend:
 
----
+- Next.js (App Router), TypeScript, Tailwind, shadcn/ui
+- Framer Motion optional for meeting animations
 
-## 5) Data Model (Supabase tables)
+Backend:
 
-All tables are user-scoped with `user_id` and RLS.
+- Netlify Functions for AI calls + DB writes (server-only)
 
-### `profiles`
+Data/Auth:
 
-- id (uuid pk, references auth.users)
-- display_name text
-- timezone text
-- created_at timestamptz
+- Supabase Auth (magic link)
+- Supabase Postgres with RLS
 
-### `cabinet_members`
+LLM:
 
-- id uuid pk
-- user_id uuid fk
-- name text
-- role text // e.g. "productivity", "ethics"
-- system_prompt text
-- model_provider text // "openai" (MVP), later "anthropic", "local"
-- model_name text // e.g. "gpt-4.1-mini" etc.
-- temperature float
-- is_enabled boolean
-- created_at timestamptz
-
-### `briefs`
-
-- id uuid pk
-- user_id uuid fk
-- title text
-- input_context jsonb // {goals, constraints, values}
-- status text // queued|running|done|failed
-- created_at timestamptz
-
-### `brief_responses`
-
-- id uuid pk
-- brief_id uuid fk
-- cabinet_member_id uuid fk
-- response_text text
-- vote text // approve|abstain|oppose
-- metadata jsonb // {model, latency_ms, tokens}
-- created_at timestamptz
-
-### `decisions`
-
-- id uuid pk
-- brief_id uuid fk
-- chosen_option text
-- user_notes text
-- created_at timestamptz
-
-### `audits`
-
-- id uuid pk
-- brief_id uuid fk
-- reflection text
-- what_changed text
-- created_at timestamptz
+- OpenAI API (MVP)
+- Architecture must allow adding other providers later by implementing a provider adapter.
 
 ---
 
-## 6) Repository File Structure
+## Required UX (make it fun)
 
-Use this structure (Cursor should create missing files):
-
-cabinet/
-netlify.toml
-src/
-app/
-layout.tsx
-globals.css
-login/page.tsx
-page.tsx
-brief/
-new/page.tsx
-[id]/page.tsx
-cabinet/page.tsx
-components/
-cabinet/
-MinisterCard.tsx
-CabinetTable.tsx
-VotePanel.tsx
-BriefSummary.tsx
-common/
-Navbar.tsx
-LoadingState.tsx
-lib/
-supabase/
-client.ts
-server.ts
-auth.ts
-db/
-queries.ts
-agents/
-types.ts
-prompts/
-defaultMinisters.ts
-modelRouter.ts
-orchestrator.ts
-safety.ts
-netlify/
-functions/
-briefs-create.ts
-briefs-get.ts
-briefs-decide.ts
-briefs-audit.ts
-
-supabase/
-migrations/
-001_init.sql
-seed.sql
+- Cabinet Chamber UI looks like a “meeting”: ministers arranged around a table (grid).
+- Clicking a minister opens a “dossier” dialog with full response + vote + model config.
+- Prime Minister summary is centered as “Cabinet Brief”.
+- Opposition Leader visually separated (different styling).
 
 ---
 
-## 7) Agent System (MVP behavior)
+## Data model (Supabase tables)
 
-### Ministers (default set)
+All rows must be scoped to the logged-in user (user_id) and enforced with RLS.
+
+Tables:
+
+- profiles(id=auth.users.id, display_name, timezone, created_at)
+- cabinet_members(id, user_id, name, role, system_prompt, model_provider, model_name, temperature, is_enabled, created_at)
+- briefs(id, user_id, title, input_context jsonb, status queued|running|done|failed, created_at)
+- brief_responses(id, brief_id, cabinet_member_id, response_text, vote approve|abstain|oppose, metadata jsonb, created_at)
+- decisions(id, brief_id, chosen_option, user_notes, created_at)
+- audits(id, brief_id, reflection, what_changed, created_at)
+
+---
+
+## Default Cabinet (seed on first login)
+
+Seed these 6 ministers if user has none:
 
 - Prime Minister (Synthesizer)
 - Minister of Productivity
@@ -193,155 +83,91 @@ seed.sql
 - Minister of Economy (Opportunity Cost)
 - Opposition Leader (Skeptic)
 
-### Orchestration rules
+Each must have a strong system prompt and consistent output format:
 
-1. For a new brief:
-   - Load enabled ministers from DB
-   - Call LLM for each minister in parallel
-   - Save `brief_responses`
-2. Then call Prime Minister:
-   - Input: all minister outputs + original user context
-   - Output: 2-3 plan options + tradeoffs + suggested votes
-3. Votes:
-   - Each minister outputs a `vote` field and 1-line justification
-4. Safety:
-   - Run a lightweight “safety check” function that blocks/flags obviously harmful guidance.
-
-### Model-per-agent
-
-- Each `cabinet_member` uses its own {provider, model, temperature}
-- MVP supports OpenAI only, but code is structured to add more providers later.
+- Recommendation
+- Tradeoffs
+- Risks
+- One hard question
+- Vote (approve/abstain/oppose) + one-line reason
 
 ---
 
-## 8) API / Server Functions (Netlify)
+## Orchestration rules (server-side)
 
-All functions must:
+When creating a brief:
 
-- Verify Supabase JWT from Authorization header
-- Use Supabase service role key server-side only
-- Never expose AI keys to client
+1. Insert into briefs(status=running)
+2. Load enabled cabinet members from DB
+3. Call each minister in parallel (Promise.all)
+4. Save each to brief_responses
+5. Call Prime Minister last using original context + all minister outputs
+6. Save PM output as a special brief_response row (or a separate field, but prefer brief_responses for consistency)
+7. Update briefs(status=done)
 
-### POST /.netlify/functions/briefs-create
+Hard requirements:
 
-Body:
-{
-"title": "Thursday Plan",
-"input_context": { "goals": "...", "constraints": "...", "values": ["health","family"] }
-}
-
-Behavior:
-
-- Insert into `briefs` (status=running)
-- Orchestrate ministers + Prime Minister
-- Insert into `brief_responses`
-- Update `briefs.status=done`
-- Return brief id
-
-### GET /.netlify/functions/briefs-get?id=...
-
-- Return brief + responses + decision + audit
-
-### POST /.netlify/functions/briefs-decide
-
-Body: { "brief_id": "...", "chosen_option": "...", "user_notes": "..." }
-
-### POST /.netlify/functions/briefs-audit
-
-Body: { "brief_id": "...", "reflection": "...", "what_changed": "..." }
+- Never call LLM from client.
+- Never expose service role key or OpenAI key to client.
+- Every function must verify Supabase JWT (Authorization header).
+- Timeouts + retries should be minimal but present (e.g., 1 retry).
+- Persist model metadata (model, latency) in brief_responses.metadata.
 
 ---
 
-## 9) UI Requirements (Cabinet Chamber)
+## Bias / fairness experiments (MVP+ but code-ready)
 
-- Minister cards arranged in a “table” layout (grid).
-- Click a minister card -> opens dialog “dossier”:
-  - name, role
-  - model config (read-only)
-  - full response
-- Center panel:
-  - Prime Minister summary (options)
-- Vote panel:
-  - display each minister’s vote
-  - user chooses plan and saves decision
+We want model-per-agent to reduce single-model bias and create real disagreement.
+Later add /evals page that runs the same scenario across different model configs.
+Store eval results in a table if needed.
 
 ---
 
-## 10) Implementation Order (Cursor should follow)
+## Repository structure (target)
 
-### Phase 1: Infrastructure
-
-1. Create Supabase clients (client.ts/server.ts)
-2. Build login page using magic link
-3. Build auth guard for protected routes
-4. Add placeholder dashboard
-
-### Phase 2: Database & Seeding
-
-1. Add SQL migration: tables + RLS
-2. On first login:
-   - create profile row
-   - seed default cabinet_members if none exist
-
-### Phase 3: Morning Brief + Orchestrator
-
-1. Build /brief/new form
-2. Implement briefs-create function
-3. Implement orchestrator + modelRouter + default prompts
-4. Save responses and show /brief/[id]
-
-### Phase 4: Decision + Audit
-
-1. Decision endpoint + UI
-2. Audit endpoint + UI
-
-### Phase 5: Cabinet Builder
-
-1. /cabinet page to edit ministers model/temp and enable/disable
-2. Persist to DB
+- src/app for pages
+- src/components for UI
+- src/lib for supabase + agents
+- netlify/functions for server endpoints
+- supabase/migrations for SQL
 
 ---
 
-## 11) Environment Variables
+## Cursor implementation contract (how Cursor should work on this repo)
 
-Local `.env.local` and Netlify env vars:
+When asked to implement a feature:
+
+1. First: scan the repo and summarize current state (what already exists and what doesn’t).
+2. Second: propose a minimal plan (small set of file edits).
+3. Third: implement in small commits (few files at a time), with no breaking changes.
+
+Quality gates:
+
+- No secrets in client.
+- Typescript types for payloads.
+- Clean UI with shadcn components.
+- Avoid overengineering frameworks for agents.
+- Keep orchestrator simple and readable.
+
+---
+
+## Environment variables
+
+Local and Netlify:
 
 - NEXT_PUBLIC_SUPABASE_URL
 - NEXT_PUBLIC_SUPABASE_ANON_KEY
-- SUPABASE_SERVICE_ROLE_KEY (server only)
-- OPENAI_API_KEY (server only)
+  Server only:
+- SUPABASE_SERVICE_ROLE_KEY
+- OPENAI_API_KEY
 
 ---
 
-## 12) Cursor Instructions (what Cursor should do)
+## Acceptance checklist (MVP)
 
-When implementing:
-
-- Keep the code simple and readable.
-- Prefer small modules over frameworks.
-- Use TypeScript types for API payloads and DB entities.
-- Avoid blocking UI; show loading states.
-- Write minimal error handling with clear messages.
-- Do not write secrets into the client.
-- Ensure RLS is enforced (queries must always filter by user_id).
-- Provide clean, consistent styling (shadcn + Tailwind).
-
-Deliverables Cursor must generate:
-
-1. Supabase migration SQL + RLS policies
-2. Supabase client/server wrappers
-3. Login flow + session management
-4. Full MVP routes/pages and Netlify functions
-5. Default minister prompts + orchestrator
-
----
-
-## 13) Definition of Done (MVP)
-
-- I can login with magic link.
-- I can create a morning brief.
-- I see 6 ministers + Prime Minister summary + votes.
-- I can choose a plan and save it.
-- I can run an evening audit.
-- I can configure models per minister.
-- Deployed on Netlify with Supabase backend.
+- Login works (magic link)
+- Cabinet members exist automatically after first login
+- Create brief -> cabinet responses appear
+- Choose plan -> decision saved
+- Evening audit saved
+- Deployed on Netlify using server functions (no secret leaks)

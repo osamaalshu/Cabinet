@@ -16,6 +16,8 @@ export async function getUser() {
 
 /**
  * SERVER-ONLY: Ensures a user is logged in or redirects to login.
+ * Note: The middleware already handles the `next` param for deep links.
+ * This is a fallback for server components.
  */
 export async function requireUser() {
   const user = await getUser()
