@@ -10,35 +10,35 @@ export interface ModelOption {
 
 export const AVAILABLE_MODELS: ModelOption[] = [
   {
-    id: 'gpt-5-nano',
-    name: 'GPT-5 Nano',
+    id: 'gpt-4o-mini',
+    name: 'GPT-4o Mini',
     provider: 'openai',
-    description: 'Ultra-fast and cheapest, perfect for quick tasks',
-    inputCost: '$0.05/1M',
-    outputCost: '$0.40/1M',
+    description: 'Fast and cost-effective, great for most tasks',
+    inputCost: '$0.15/1M',
+    outputCost: '$0.60/1M',
     costTier: 'low',
   },
   {
-    id: 'gpt-5-mini',
-    name: 'GPT-5 Mini',
+    id: 'gpt-4o',
+    name: 'GPT-4o',
     provider: 'openai',
-    description: 'Great balance of speed and capability',
-    inputCost: '$0.25/1M',
-    outputCost: '$2.00/1M',
-    costTier: 'low',
-  },
-  {
-    id: 'gpt-5',
-    name: 'GPT-5',
-    provider: 'openai',
-    description: 'Full GPT-5 capabilities at reasonable cost',
-    inputCost: '$1.25/1M',
+    description: 'Most capable model, best for complex reasoning',
+    inputCost: '$2.50/1M',
     outputCost: '$10.00/1M',
     costTier: 'medium',
   },
+  {
+    id: 'gpt-4-turbo',
+    name: 'GPT-4 Turbo',
+    provider: 'openai',
+    description: 'Powerful with large context window',
+    inputCost: '$10.00/1M',
+    outputCost: '$30.00/1M',
+    costTier: 'high',
+  },
 ]
 
-export const DEFAULT_MODEL = 'gpt-5-nano'
+export const DEFAULT_MODEL = 'gpt-4o-mini'
 
 export function getModelById(id: string): ModelOption | undefined {
   return AVAILABLE_MODELS.find(m => m.id === id)
