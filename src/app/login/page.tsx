@@ -149,12 +149,16 @@ function AuthForm() {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="w-full max-w-sm"
+      className="w-full max-w-md"
     >
       {/* Logo */}
-      <div className="text-center mb-10">
+      <div className="text-center mb-8">
         <Link href="/" className="heading-display text-3xl text-ink">Cabinet</Link>
+        <p className="body-sans text-sm text-ink-muted mt-1">Your council of advisors</p>
       </div>
+      
+      {/* Card */}
+      <div className="bg-white border border-stone-dark/50 rounded-2xl p-8 shadow-sm">
 
       {/* Verify Email View */}
       {view === 'verify-email' && (
@@ -185,7 +189,7 @@ function AuthForm() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-white border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
+                className="w-full px-4 py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
                 placeholder="you@example.com"
                 required
                 autoComplete="email"
@@ -208,7 +212,7 @@ function AuthForm() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 pr-11 bg-white border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
+                  className="w-full px-4 py-3 pr-11 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
                   placeholder="••••••••"
                   required
                   autoComplete="current-password"
@@ -256,7 +260,7 @@ function AuthForm() {
           {/* OTP Button */}
           <button
             onClick={() => { setView('otp'); clearForm() }}
-            className="w-full py-3 bg-white border border-stone-dark rounded-lg body-sans text-ink hover:bg-stone/30 transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink hover:bg-stone/50 transition-colors flex items-center justify-center gap-2"
           >
             <Mail className="h-4 w-4" />
             Sign in with One-Time Code
@@ -285,7 +289,7 @@ function AuthForm() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-white border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
+                className="w-full px-4 py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
                 placeholder="you@example.com"
                 required
                 autoComplete="email"
@@ -299,7 +303,7 @@ function AuthForm() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 pr-11 bg-white border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
+                  className="w-full px-4 py-3 pr-11 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
                   placeholder="At least 6 characters"
                   required
                   minLength={6}
@@ -321,7 +325,7 @@ function AuthForm() {
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-white border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
+                className="w-full px-4 py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
                 placeholder="••••••••"
                 required
                 autoComplete="new-password"
@@ -381,7 +385,7 @@ function AuthForm() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-3 bg-white border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
+                  className="w-full px-4 py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
                   placeholder="you@example.com"
                   required
                   autoComplete="email"
@@ -445,6 +449,7 @@ function AuthForm() {
           </p>
         </>
       )}
+      </div>
     </motion.div>
   )
 }
