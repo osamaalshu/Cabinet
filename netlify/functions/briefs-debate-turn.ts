@@ -167,19 +167,22 @@ Respond as JSON:
 }`
     }
 
-    // Call OpenAI
+    // Call OpenAI - handle GPT-5 vs GPT-4 parameter differences
     const maxTokens = turn_type === 'synthesis' ? 500 : turn_type === 'opening' ? 300 : 150
     const modelName = minister.model_name || 'gpt-4o-mini'
+    const isGpt5 = modelName.startsWith('gpt-5') || modelName.startsWith('o1') || modelName.startsWith('o3')
     
+    // GPT-5 models: no temperature, use max_completion_tokens
+    // GPT-4 models: support temperature, use max_tokens
     const response = await openai.chat.completions.create({
       model: modelName,
       messages: [
         { role: 'system', content: minister.system_prompt + '\nBe concise and direct. No filler words.' },
         { role: 'user', content: prompt },
       ],
-      temperature: minister.temperature || 0.7,
+      ...(isGpt5 ? {} : { temperature: minister.temperature || 0.7 }),
       response_format: { type: 'json_object' },
-      max_tokens: maxTokens,
+      ...(isGpt5 ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
     }, { timeout: 8000 })
 
     const result = JSON.parse(response.choices[0].message.content || '{}')

@@ -40,13 +40,16 @@ export async function runMinister(minister: Minister, context: BriefContext, pre
   `
 
   try {
+    const modelName = minister.model_name || 'gpt-4o-mini'
+    const isGpt5 = modelName.startsWith('gpt-5') || modelName.startsWith('o1') || modelName.startsWith('o3')
+    
     const response = await openai.chat.completions.create({
-      model: minister.model_name || 'gpt-4o-mini',
+      model: modelName,
       messages: [
         { role: 'system', content: minister.system_prompt },
         { role: 'user', content: prompt },
       ],
-      temperature: minister.temperature || 0.7,
+      ...(isGpt5 ? {} : { temperature: minister.temperature || 0.7 }),
       response_format: { type: 'json_object' },
     }, { timeout: 7000 })
 
@@ -91,13 +94,16 @@ export async function runPrimeMinister(
     2. "options": An array of objects, each with "title", "description" (1 sentence), and "tradeoffs" (1 sentence).
   `
 
+  const pmModelName = pmMinister.model_name || 'gpt-4o-mini'
+  const isPmGpt5 = pmModelName.startsWith('gpt-5') || pmModelName.startsWith('o1') || pmModelName.startsWith('o3')
+  
   const response = await openai.chat.completions.create({
-    model: pmMinister.model_name || 'gpt-4o-mini',
+    model: pmModelName,
     messages: [
       { role: 'system', content: pmMinister.system_prompt },
       { role: 'user', content: prompt },
     ],
-    temperature: pmMinister.temperature || 0.7,
+    ...(isPmGpt5 ? {} : { temperature: pmMinister.temperature || 0.7 }),
     response_format: { type: 'json_object' },
   }, { timeout: 7000 })
 
