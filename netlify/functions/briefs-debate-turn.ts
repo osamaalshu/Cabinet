@@ -98,73 +98,84 @@ export const handler = async (event: any) => {
     let messageType = turn_type || 'opening'
 
     if (turn_type === 'opening') {
-      prompt = `CONTEXT:
-Goals: ${context.goals}
-Constraints: ${context.constraints}
-Values: ${(context.values || []).join(', ')}
-${evidenceContext}${interjectionContext}
-Your role: ${minister.name} (${minister.role})
+      prompt = `You are ${minister.name}, a cabinet advisor with the role of ${minister.role}.
 
-Provide your opening statement with clear analysis and recommendation.
-Structure: 1) Key insight 2) Recommendation 3) One risk to consider
+USER'S SITUATION:
+- Goals: ${context.goals || 'Not specified'}
+- Constraints: ${context.constraints || 'None specified'}
+- Values: ${(context.values || []).join(', ') || 'Not specified'}
+${evidenceContext}${interjectionContext}
+
+YOUR TASK: Provide your opening statement with clear analysis and recommendation.
+Include: 1) Your key insight 2) Your recommendation 3) One risk to consider
 Keep it focused - 3-4 sentences total.
 
-Respond as JSON: {"content": "your statement", "vote": "approve" | "abstain" | "oppose"}`
+You MUST respond with valid JSON in this exact format:
+{"content": "Your actual statement goes here as a string", "vote": "approve"}
+
+The "content" field must contain your actual advice as a non-empty string.
+The "vote" field must be exactly one of: "approve", "abstain", or "oppose".`
     } 
     else if (turn_type === 'rebuttal') {
-      prompt = `PREVIOUS STATEMENTS:
-${previous_statements}
+      prompt = `You are ${minister.name}. Here's what other ministers said:
+
+${previous_statements || 'No previous statements yet.'}
 ${evidenceContext}${interjectionContext}
-Your role: ${minister.name}
 
-DEBATE RULES:
-- Directly address ONE specific point from another minister
+YOUR TASK: Respond to ONE specific point from another minister.
 - State whether you agree or disagree and WHY
-- Keep it sharp: 1-2 sentences only
-- Name the minister you're responding to
+- Keep it to 1-2 sentences
+- Name which minister you're responding to
 
-Respond as JSON: {"content": "your rebuttal", "responding_to": "minister name"}`
+You MUST respond with valid JSON in this exact format:
+{"content": "Your rebuttal goes here", "responding_to": "Minister Name"}`
     }
     else if (turn_type === 'cross_exam') {
-      prompt = `DISCUSSION SO FAR:
-${previous_statements}
+      prompt = `You are ${minister.name} (Opposition Leader). Discussion so far:
+
+${previous_statements || 'No discussion yet.'}
 ${interjectionContext}
-Your role: ${minister.name} (Opposition Leader)
 
-Ask ONE pointed question that challenges the weakest argument made.
-Be specific - name the minister and quote their claim.
-Maximum 2 sentences.
+YOUR TASK: Ask ONE pointed question that challenges the weakest argument.
+Be specific - name the minister and quote their claim. Maximum 2 sentences.
 
-Respond as JSON: {"content": "your question", "target_minister": "name"}`
+You MUST respond with valid JSON in this exact format:
+{"content": "Your challenging question goes here", "target_minister": "Minister Name"}`
     }
     else if (turn_type === 'closing') {
-      prompt = `FULL DISCUSSION:
-${previous_statements}
+      prompt = `You are ${minister.name}. Full discussion:
+
+${previous_statements || 'No discussion available.'}
 ${interjectionContext}
-Your role: ${minister.name}
 
-Final position in ONE sentence. State your vote clearly.
+YOUR TASK: Give your final position in ONE sentence. State your vote clearly.
 
-Respond as JSON: {"content": "closing statement", "vote": "approve" | "abstain" | "oppose"}`
+You MUST respond with valid JSON in this exact format:
+{"content": "Your final statement goes here", "vote": "approve"}`
     }
     else if (turn_type === 'synthesis') {
-      prompt = `CABINET DISCUSSION:
-${previous_statements}
+      prompt = `You are the Prime Minister. Your cabinet has finished deliberating.
+
+CABINET DISCUSSION:
+${previous_statements || 'No discussion recorded.'}
 ${interjectionContext}
+
 ORIGINAL CONTEXT:
-Goals: ${context.goals}
-Constraints: ${context.constraints}
+- Goals: ${context.goals || 'Not specified'}
+- Constraints: ${context.constraints || 'None'}
 
-As Prime Minister, provide:
-1. One-sentence summary of the debate
-2. 2-3 clear options with pros/cons
+YOUR TASK: Synthesize the debate and present options to the user.
 
-Respond as JSON:
+You MUST respond with valid JSON in this exact format:
 {
-  "summary": "The cabinet [agreed/was divided] on...",
-  "consensus": "strong" | "moderate" | "weak",
-  "options": [{"title": "Option", "description": "What to do", "tradeoffs": "Key tradeoff", "supporters": ["names"]}]
-}`
+  "summary": "One sentence summary of what the cabinet discussed and concluded",
+  "consensus": "moderate",
+  "options": [
+    {"title": "Option A", "description": "What this option involves", "tradeoffs": "Key tradeoff to consider", "supporters": ["Minister Name"]}
+  ]
+}
+
+Include 2-3 options. The "consensus" must be "strong", "moderate", or "weak".`
     }
 
     // Call OpenAI - handle GPT-5 vs GPT-4 parameter differences
@@ -187,11 +198,25 @@ Respond as JSON:
 
     const rawContent = response.choices[0].message.content || '{}'
     console.log('OpenAI raw response:', rawContent)
-    const result = JSON.parse(rawContent)
+    let result: any = {}
+    try {
+      result = JSON.parse(rawContent)
+    } catch (e) {
+      console.log('Failed to parse JSON, using raw content')
+      result = { content: rawContent }
+    }
     console.log('Parsed result:', result)
     
-    // Ensure we have content
-    const finalContent = result.content || result.response || result.text || rawContent
+    // Ensure we have content - try multiple possible field names
+    let finalContent = result.content || result.response || result.text || result.statement || result.answer
+    
+    // If still empty, use the raw response or a fallback
+    if (!finalContent || finalContent === '{}' || finalContent.trim() === '') {
+      console.log('Content was empty, using fallback')
+      // Try to extract any string value from the result
+      const anyValue = Object.values(result).find(v => typeof v === 'string' && v.length > 10)
+      finalContent = anyValue as string || `[${minister.name} is thinking...]`
+    }
 
     // Insert discussion message
     const { data: message, error: insertError } = await supabase.from('discussion_messages').insert({
