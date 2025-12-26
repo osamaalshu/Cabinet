@@ -19,15 +19,15 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/login?error=auth_failed`)
   }
 
-  // Seed profile and cabinet members on first login
-  try {
-    await ensureUserProfileAndCabinet(data.user.id)
-  } catch (err) {
-    console.error('Error during profile/cabinet seeding:', err)
-    return NextResponse.redirect(`${origin}/login?error=seeding_failed`)
-  }
-
-  // Redirect to the intended destination
+  // Redirect immediately - don't block on seeding
   const redirectUrl = new URL(next, origin)
+  
+  // Seed profile and cabinet members asynchronously (non-blocking)
+  // This happens in the background so login feels instant
+  ensureUserProfileAndCabinet(data.user.id).catch((err) => {
+    console.error('Error during profile/cabinet seeding (non-blocking):', err)
+    // Don't fail the login if seeding fails - user can still use the app
+  })
+
   return NextResponse.redirect(redirectUrl)
 }

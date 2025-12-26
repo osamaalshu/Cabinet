@@ -47,7 +47,8 @@ function LoginForm() {
       }
       setIsLoading(false)
     } else {
-      router.push(nextPath)
+      // Redirect immediately - don't wait for anything
+      router.replace(nextPath)
     }
   }
 
@@ -108,7 +109,8 @@ function LoginForm() {
       setMessage({ type: 'error', text: 'Invalid or expired code. Please try again.' })
       setIsLoading(false)
     } else {
-      router.push(nextPath)
+      // Redirect immediately
+      router.replace(nextPath)
     }
   }
 

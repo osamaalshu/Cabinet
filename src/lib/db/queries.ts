@@ -46,48 +46,26 @@ export const DEFAULT_MINISTERS = [
 ]
 
 export async function ensureUserProfileAndCabinet(userId: string) {
-  console.log('Starting ensureUserProfileAndCabinet for:', userId)
   const supabase = await createAdminClient()
 
-  // 1. Ensure profile exists
-  console.log('Checking profile...')
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('id', userId)
-    .maybeSingle()
+  // Use upsert for profile (faster - single query instead of check + insert)
+  await supabase.from('profiles').upsert({ id: userId }, { onConflict: 'id' })
 
-  if (profileError) {
-    console.error('Error checking profile:', profileError)
-  }
-
-  if (!profile) {
-    console.log('Creating profile...')
-    const { error: insertError } = await supabase.from('profiles').insert({ id: userId })
-    if (insertError) console.error('Error creating profile:', insertError)
-  }
-
-  // 2. Ensure cabinet members exist
-  console.log('Checking cabinet members...')
-  const { data: members, error: membersError } = await supabase
+  // Check if cabinet members exist (single query with limit 1 is fast)
+  const { data: members } = await supabase
     .from('cabinet_members')
     .select('id')
     .eq('user_id', userId)
     .limit(1)
 
-  if (membersError) {
-    console.error('Error checking cabinet members:', membersError)
-  }
-
+  // Only seed if no members exist
   if (!members || members.length === 0) {
-    console.log('Seeding default cabinet members...')
-    const cabinetWithUserId = DEFAULT_MINISTERS.map(m => ({
+    const cabinetWithUserId = DEFAULT_MINISTERS.map((m, idx) => ({
       ...m,
       user_id: userId,
+      seat_index: idx,
     }))
-    const { error: seedError } = await supabase.from('cabinet_members').insert(cabinetWithUserId)
-    if (seedError) console.error('Error seeding cabinet members:', seedError)
+    await supabase.from('cabinet_members').insert(cabinetWithUserId)
   }
-  console.log('ensureUserProfileAndCabinet finished.')
 }
 
