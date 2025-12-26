@@ -178,25 +178,37 @@ You MUST respond with valid JSON in this exact format:
 Include 2-3 options. The "consensus" must be "strong", "moderate", or "weak".`
     }
 
-    // Call OpenAI - handle GPT-5 vs GPT-4 parameter differences
+    // Call OpenAI - GPT-5 uses Responses API, GPT-4 uses Chat Completions API
     const maxTokens = turn_type === 'synthesis' ? 500 : turn_type === 'opening' ? 300 : 150
     const modelName = minister.model_name || 'gpt-4o-mini'
     const isGpt5 = modelName.startsWith('gpt-5') || modelName.startsWith('o1') || modelName.startsWith('o3')
     
-    // GPT-5 models: no temperature, use max_completion_tokens
-    // GPT-4 models: support temperature, use max_tokens
-    const response = await openai.chat.completions.create({
-      model: modelName,
-      messages: [
-        { role: 'system', content: minister.system_prompt + '\nBe concise and direct. No filler words.' },
-        { role: 'user', content: prompt },
-      ],
-      ...(isGpt5 ? {} : { temperature: minister.temperature || 0.7 }),
-      response_format: { type: 'json_object' },
-      ...(isGpt5 ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
-    }, { timeout: 8000 })
-
-    const rawContent = response.choices[0].message.content || '{}'
+    let rawContent = '{}'
+    
+    if (isGpt5) {
+      // GPT-5 models use the Responses API
+      console.log(`Using Responses API for ${modelName}`)
+      const fullPrompt = `${minister.system_prompt}\nBe concise and direct. No filler words.\n\n${prompt}`
+      const response = await openai.responses.create({
+        model: modelName,
+        input: fullPrompt,
+      })
+      rawContent = response.output_text || '{}'
+    } else {
+      // GPT-4 models use Chat Completions API
+      console.log(`Using Chat Completions API for ${modelName}`)
+      const response = await openai.chat.completions.create({
+        model: modelName,
+        messages: [
+          { role: 'system', content: minister.system_prompt + '\nBe concise and direct. No filler words.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: minister.temperature || 0.7,
+        response_format: { type: 'json_object' },
+        max_tokens: maxTokens,
+      }, { timeout: 8000 })
+      rawContent = response.choices[0].message.content || '{}'
+    }
     console.log('OpenAI raw response:', rawContent)
     let result: any = {}
     try {
