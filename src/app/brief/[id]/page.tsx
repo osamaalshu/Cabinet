@@ -278,6 +278,19 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
       }
     }
 
+    // Helper to create message for transcript when server doesn't return one
+    const createLocalMessage = (ministerId: string, content: string, turnIdx: number, msgType: string, vote?: string): DiscussionMessage => ({
+      id: `local-${ministerId}-${turnIdx}-${Date.now()}`,
+      brief_id: id,
+      turn_index: turnIdx,
+      speaker_member_id: ministerId,
+      speaker_role: ministers.find(m => m.id === ministerId)?.role || 'unknown',
+      message_type: msgType,
+      content,
+      metadata: { vote },
+      created_at: new Date().toISOString(),
+    })
+
     try {
       // ROUND 1: Opening Statements (always runs)
       setCurrentPhase('Opening Statements')
@@ -285,11 +298,14 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
 
       for (const minister of regularMinisters) {
         setActiveMinisterId(minister.id)
-        const result = await runTurn(session.access_token, minister.id, 'opening', turnIndex++)
+        const currentTurn = turnIndex++
+        const result = await runTurn(session.access_token, minister.id, 'opening', currentTurn)
         // Skip if minister was not found
         if (!result) continue
         openingStatements.push({ minister, content: result.content, vote: result.vote })
-        addToTranscript(result.message)
+        // Use server message or create local one
+        const msg = result.message || createLocalMessage(minister.id, result.content, currentTurn, 'opening', result.vote)
+        addToTranscript(msg)
         setResponses(prev => [...prev, {
           cabinet_member_id: minister.id,
           response_text: result.content,
@@ -320,8 +336,12 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
             .map(s => `${s.minister.name}: ${s.content}`)
             .join('\n\n')
 
-          const result = await runTurn(session.access_token, minister.id, 'rebuttal', turnIndex++, othersStatements)
-          if (result) addToTranscript(result.message)
+          const currentTurn = turnIndex++
+          const result = await runTurn(session.access_token, minister.id, 'rebuttal', currentTurn, othersStatements)
+          if (result) {
+            const msg = result.message || createLocalMessage(minister.id, result.content, currentTurn, 'rebuttal')
+            addToTranscript(msg)
+          }
         }
       }
 
@@ -336,8 +356,12 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
           
           setActiveMinisterId(oppositionLeader.id)
           const allStatements = openingStatements.map(s => `${s.minister.name}: ${s.content}`).join('\n\n')
-          const result = await runTurn(session.access_token, oppositionLeader.id, 'cross_exam', turnIndex++, allStatements)
-          if (result) addToTranscript(result.message)
+          const currentTurn = turnIndex++
+          const result = await runTurn(session.access_token, oppositionLeader.id, 'cross_exam', currentTurn, allStatements)
+          if (result) {
+            const msg = result.message || createLocalMessage(oppositionLeader.id, result.content, currentTurn, 'cross_exam')
+            addToTranscript(msg)
+          }
         }
       }
 
@@ -361,8 +385,12 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
               `${getMemberName(t.speaker_member_id)}: ${t.content}`
             ).join('\n\n')
             
-            const result = await runTurn(session.access_token, minister.id, 'closing', turnIndex++, fullDiscussion)
-            if (result) addToTranscript(result.message)
+            const currentTurn = turnIndex++
+            const result = await runTurn(session.access_token, minister.id, 'closing', currentTurn, fullDiscussion)
+            if (result) {
+              const msg = result.message || createLocalMessage(minister.id, result.content, currentTurn, 'closing', result.vote)
+              addToTranscript(msg)
+            }
           }
         }
       }
@@ -377,9 +405,12 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
           .map(s => `${s.minister.name} (${s.vote}): ${s.content}`)
           .join('\n\n')
 
-        const result = await runTurn(session.access_token, pmMinister.id, 'synthesis', turnIndex++, fullTranscript)
+        const currentTurn = turnIndex++
+        const result = await runTurn(session.access_token, pmMinister.id, 'synthesis', currentTurn, fullTranscript)
         if (result) {
-          addToTranscript(result.message)
+          const synthContent = result.content || (result.synthesis ? JSON.stringify(result.synthesis) : '')
+          const msg = result.message || createLocalMessage(pmMinister.id, synthContent, currentTurn, 'synthesis')
+          addToTranscript(msg)
           
           if (result.synthesis) {
             setResponses(prev => [...prev, {
