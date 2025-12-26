@@ -302,13 +302,22 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
         const result = await runTurn(session.access_token, minister.id, 'opening', currentTurn)
         // Skip if minister was not found
         if (!result) continue
-        openingStatements.push({ minister, content: result.content, vote: result.vote })
-        // Use server message or create local one
-        const msg = result.message || createLocalMessage(minister.id, result.content, currentTurn, 'opening', result.vote)
+        
+        // Extract content - prioritize result.content, fall back to message.content
+        const content = result.content || result.message?.content || '[No response received]'
+        openingStatements.push({ minister, content, vote: result.vote })
+        
+        // Ensure message has content
+        let msg = result.message
+        if (msg && !msg.content) {
+          msg = { ...msg, content }
+        } else if (!msg) {
+          msg = createLocalMessage(minister.id, content, currentTurn, 'opening', result.vote)
+        }
         addToTranscript(msg)
         setResponses(prev => [...prev, {
           cabinet_member_id: minister.id,
-          response_text: result.content,
+          response_text: content,
           vote: result.vote,
         }])
       }

@@ -185,16 +185,22 @@ Respond as JSON:
       ...(isGpt5 ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
     }, { timeout: 8000 })
 
-    const result = JSON.parse(response.choices[0].message.content || '{}')
+    const rawContent = response.choices[0].message.content || '{}'
+    console.log('OpenAI raw response:', rawContent)
+    const result = JSON.parse(rawContent)
+    console.log('Parsed result:', result)
+    
+    // Ensure we have content
+    const finalContent = result.content || result.response || result.text || rawContent
 
     // Insert discussion message
-    const { data: message } = await supabase.from('discussion_messages').insert({
+    const { data: message, error: insertError } = await supabase.from('discussion_messages').insert({
       brief_id,
       turn_index,
       speaker_member_id: minister.id,
       speaker_role: minister.role,
       message_type: messageType,
-      content: turn_type === 'synthesis' ? JSON.stringify(result) : result.content,
+      content: turn_type === 'synthesis' ? JSON.stringify(result) : finalContent,
       metadata: { 
         model: minister.model_name, 
         vote: result.vote,
@@ -203,13 +209,17 @@ Respond as JSON:
         had_interjection: !!user_interjection,
       },
     }).select().single()
+    
+    if (insertError) {
+      console.log('Discussion message insert error:', insertError)
+    }
 
     // Save to brief_responses for backward compatibility
     if (turn_type === 'opening' || turn_type === 'closing' || turn_type === 'synthesis') {
       await supabase.from('brief_responses').insert({
         brief_id,
         cabinet_member_id: minister.id,
-        response_text: turn_type === 'synthesis' ? JSON.stringify(result) : result.content,
+        response_text: turn_type === 'synthesis' ? JSON.stringify(result) : finalContent,
         vote: result.vote || 'abstain',
         metadata: turn_type === 'synthesis' ? { type: 'synthesis' } : { from_debate: true, turn_type },
       })
@@ -220,7 +230,7 @@ Respond as JSON:
       body: JSON.stringify({ 
         success: true, 
         message,
-        content: result.content,
+        content: finalContent,
         vote: result.vote,
         synthesis: turn_type === 'synthesis' ? result : undefined,
       }),
