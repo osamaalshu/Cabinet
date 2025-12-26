@@ -7,7 +7,7 @@ import { Loader2, Eye, EyeOff, Mail } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
 
-type AuthView = 'signin' | 'signup' | 'otp' | 'verify-email'
+type AuthView = 'signin' | 'signup' | 'otp' | 'forgot' | 'verify-email'
 
 function AuthForm() {
   const searchParams = useSearchParams()
@@ -105,7 +105,26 @@ function AuthForm() {
     setIsLoading(false)
   }
 
-  // Send OTP
+  // Forgot Password - sends reset link
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setMessage(null)
+
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+      { redirectTo: `${window.location.origin}/auth/reset-password` }
+    )
+
+    if (error) {
+      setMessage({ type: 'error', text: error.message })
+    } else {
+      setMessage({ type: 'success', text: 'Check your email for the password reset link!' })
+    }
+    setIsLoading(false)
+  }
+
+  // Send OTP - for passwordless login
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -113,13 +132,20 @@ function AuthForm() {
 
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim().toLowerCase(),
+      options: {
+        shouldCreateUser: false, // Don't create new users via OTP
+      }
     })
 
     if (error) {
-      setMessage({ type: 'error', text: error.message })
+      if (error.message.includes('Signups not allowed')) {
+        setMessage({ type: 'error', text: 'No account found with this email. Please sign up first.' })
+      } else {
+        setMessage({ type: 'error', text: error.message })
+      }
     } else {
       setOtpSent(true)
-      setMessage({ type: 'success', text: 'Code sent! Check your email.' })
+      setMessage({ type: 'success', text: 'Check your email for a login link!' })
     }
     setIsLoading(false)
   }
@@ -201,7 +227,7 @@ function AuthForm() {
                 <label className="body-sans text-sm text-ink">Password</label>
                 <button
                   type="button"
-                  onClick={() => { setView('otp'); clearForm() }}
+                  onClick={() => { setView('forgot'); clearForm() }}
                   className="body-sans text-sm text-wine hover:underline"
                 >
                   Forgot password?
@@ -257,13 +283,13 @@ function AuthForm() {
             <div className="flex-1 h-px bg-stone-dark" />
           </div>
 
-          {/* OTP Button */}
+          {/* Magic Link Button */}
           <button
             onClick={() => { setView('otp'); clearForm() }}
             className="w-full py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink hover:bg-stone/50 transition-colors flex items-center justify-center gap-2"
           >
             <Mail className="h-4 w-4" />
-            Sign in with One-Time Code
+            Sign in with Email Link
           </button>
 
           {/* Sign Up Link */}
@@ -367,76 +393,143 @@ function AuthForm() {
         </>
       )}
 
-      {/* OTP View */}
+      {/* OTP View - Magic Link */}
       {view === 'otp' && (
         <>
-          <h2 className="heading-serif text-lg text-ink text-center mb-1">
-            {otpSent ? 'Enter your code' : 'Sign in with code'}
-          </h2>
-          <p className="body-sans text-sm text-ink-muted text-center mb-6">
-            {otpSent ? 'We sent a 6-digit code to your email' : 'We\'ll email you a one-time login code'}
-          </p>
+          {!otpSent ? (
+            <>
+              <h2 className="heading-serif text-lg text-ink text-center mb-1">
+                Passwordless Sign In
+              </h2>
+              <p className="body-sans text-sm text-ink-muted text-center mb-6">
+                We'll email you a magic link to sign in
+              </p>
 
-          <form onSubmit={otpSent ? handleVerifyOtp : handleSendOtp} className="space-y-5">
-            {!otpSent ? (
-              <div>
-                <label className="block body-sans text-sm text-ink mb-1.5">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
-                  placeholder="you@example.com"
-                  required
-                  autoComplete="email"
-                />
-              </div>
-            ) : (
-              <div>
-                <label className="block body-sans text-sm text-ink mb-1.5">6-digit code</label>
-                <input
-                  type="text"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  className="w-full px-4 py-3 bg-white border border-stone-dark rounded-lg body-sans text-ink text-center text-xl tracking-[0.3em] placeholder:text-ink-muted placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
-                  placeholder="000000"
-                  maxLength={6}
-                  required
-                  autoFocus
-                />
-              </div>
-            )}
+              <form onSubmit={handleSendOtp} className="space-y-5">
+                <div>
+                  <label className="block body-sans text-sm text-ink mb-1.5">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-4 py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
+                    placeholder="you@example.com"
+                    required
+                    autoComplete="email"
+                  />
+                </div>
 
-            <AnimatePresence>
-              {message && (
-                <motion.p
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className={`text-sm body-sans ${message.type === 'error' ? 'text-red-600' : 'text-green-600'}`}
+                <AnimatePresence>
+                  {message && (
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className={`text-sm body-sans ${message.type === 'error' ? 'text-red-600' : 'text-green-600'}`}
+                    >
+                      {message.text}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-3 bg-ink text-white rounded-lg body-sans font-medium hover:bg-ink/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {message.text}
-                </motion.p>
-              )}
-            </AnimatePresence>
+                  {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Send Magic Link
+                </button>
+              </form>
+            </>
+          ) : (
+            <div className="text-center">
+              <div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Mail className="h-7 w-7 text-green-600" />
+              </div>
+              <h2 className="heading-serif text-lg text-ink mb-2">Check your email</h2>
+              <p className="body-sans text-sm text-ink-muted mb-6">
+                We sent a login link to<br /><strong className="text-ink">{email}</strong>
+              </p>
+              <button
+                onClick={() => { setOtpSent(false); setMessage(null) }}
+                className="body-sans text-sm text-wine hover:underline"
+              >
+                Send again
+              </button>
+            </div>
+          )}
 
+          <p className="text-center body-sans text-sm text-ink-muted mt-8">
             <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-3 bg-ink text-white rounded-lg body-sans font-medium hover:bg-ink/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              onClick={() => { setView('signin'); clearForm() }}
+              className="text-wine hover:underline"
             >
-              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {otpSent ? 'Verify code' : 'Send code'}
+              Back to Sign In
             </button>
-          </form>
+          </p>
+        </>
+      )}
 
-          {otpSent && (
-            <button
-              onClick={() => { setOtpSent(false); setOtp(''); setMessage(null) }}
-              className="w-full mt-3 body-sans text-sm text-ink-muted hover:text-ink transition-colors"
-            >
-              Resend code
-            </button>
+      {/* Forgot Password View */}
+      {view === 'forgot' && (
+        <>
+          {!message?.type || message.type === 'error' ? (
+            <>
+              <h2 className="heading-serif text-lg text-ink text-center mb-1">
+                Reset Password
+              </h2>
+              <p className="body-sans text-sm text-ink-muted text-center mb-6">
+                Enter your email to receive a reset link
+              </p>
+
+              <form onSubmit={handleForgotPassword} className="space-y-5">
+                <div>
+                  <label className="block body-sans text-sm text-ink mb-1.5">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-4 py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-wine/20 focus:border-wine/50"
+                    placeholder="you@example.com"
+                    required
+                    autoComplete="email"
+                  />
+                </div>
+
+                <AnimatePresence>
+                  {message && (
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="text-sm body-sans text-red-600"
+                    >
+                      {message.text}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-3 bg-ink text-white rounded-lg body-sans font-medium hover:bg-ink/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Send Reset Link
+                </button>
+              </form>
+            </>
+          ) : (
+            <div className="text-center">
+              <div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Mail className="h-7 w-7 text-green-600" />
+              </div>
+              <h2 className="heading-serif text-lg text-ink mb-2">Check your email</h2>
+              <p className="body-sans text-sm text-ink-muted mb-6">
+                We sent a password reset link to<br /><strong className="text-ink">{email}</strong>
+              </p>
+            </div>
           )}
 
           <p className="text-center body-sans text-sm text-ink-muted mt-8">
