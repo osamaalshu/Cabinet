@@ -7,10 +7,18 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { createClient } from '@/lib/supabase/client'
 import { AVAILABLE_MODELS, DEFAULT_MODEL } from '@/lib/models/availableModels'
-import { Loader2, Save, Plus, Trash2, Archive, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react'
+import { Loader2, Save, Plus, Trash2, Archive, RotateCcw, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Minus, Star } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 export const dynamic = 'force-dynamic'
+
+interface RatingHistory {
+  id: string
+  cabinet_member_id: string
+  rating: number
+  created_at: string
+  brief_title?: string
+}
 
 interface Minister {
   id: string
@@ -40,6 +48,7 @@ const DEFAULT_PROMPTS: Record<string, string> = {
 
 export default function CabinetPage() {
   const [ministers, setMinisters] = useState<Minister[]>([])
+  const [ratingsHistory, setRatingsHistory] = useState<Record<string, RatingHistory[]>>({})
   const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -54,12 +63,29 @@ export default function CabinetPage() {
       setUser(user)
 
       if (user) {
-        const [membersRes, profileRes] = await Promise.all([
+        const [membersRes, profileRes, ratingsRes] = await Promise.all([
           supabase.from('cabinet_members').select('*').eq('user_id', user.id).order('seat_index').order('name'),
-          supabase.from('profiles').select('display_name').eq('id', user.id).single()
+          supabase.from('profiles').select('display_name').eq('id', user.id).single(),
+          supabase.from('minister_ratings').select('*, briefs(title)').order('created_at', { ascending: true })
         ])
         if (membersRes.data) setMinisters(membersRes.data)
         if (profileRes.data) setProfile(profileRes.data)
+        
+        // Group ratings by minister
+        if (ratingsRes.data) {
+          const grouped: Record<string, RatingHistory[]> = {}
+          ratingsRes.data.forEach((r: any) => {
+            if (!grouped[r.cabinet_member_id]) grouped[r.cabinet_member_id] = []
+            grouped[r.cabinet_member_id].push({
+              id: r.id,
+              cabinet_member_id: r.cabinet_member_id,
+              rating: r.rating,
+              created_at: r.created_at,
+              brief_title: r.briefs?.title,
+            })
+          })
+          setRatingsHistory(grouped)
+        }
       }
       setIsLoading(false)
     }
@@ -234,6 +260,7 @@ export default function CabinetPage() {
               onChange={handleChange}
               onArchive={handleArchive}
               onDelete={handleDelete}
+              ratings={ratingsHistory[m.id] || []}
             />
           ))}
         </div>
@@ -296,6 +323,60 @@ export default function CabinetPage() {
   )
 }
 
+// Sparkline Chart Component for Ratings
+function RatingSparkline({ ratings }: { ratings: RatingHistory[] }) {
+  if (ratings.length === 0) return null
+  
+  const last10 = ratings.slice(-10)
+  const avg = last10.reduce((sum, r) => sum + r.rating, 0) / last10.length
+  const trend = last10.length >= 2 
+    ? last10[last10.length - 1].rating - last10[0].rating 
+    : 0
+  
+  // SVG sparkline
+  const width = 80
+  const height = 24
+  const padding = 2
+  const chartWidth = width - padding * 2
+  const chartHeight = height - padding * 2
+  
+  const points = last10.map((r, i) => {
+    const x = padding + (i / (last10.length - 1 || 1)) * chartWidth
+    const y = padding + chartHeight - ((r.rating - 1) / 4) * chartHeight
+    return `${x},${y}`
+  }).join(' ')
+  
+  return (
+    <div className="flex items-center gap-2">
+      <svg width={width} height={height} className="overflow-visible">
+        <polyline
+          points={points}
+          fill="none"
+          stroke={avg >= 3 ? '#22c55e' : avg >= 2 ? '#eab308' : '#ef4444'}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {/* Current rating dot */}
+        {last10.length > 0 && (
+          <circle
+            cx={padding + chartWidth}
+            cy={padding + chartHeight - ((last10[last10.length - 1].rating - 1) / 4) * chartHeight}
+            r="3"
+            fill={avg >= 3 ? '#22c55e' : avg >= 2 ? '#eab308' : '#ef4444'}
+          />
+        )}
+      </svg>
+      <div className="flex items-center gap-1">
+        <span className="body-sans text-xs font-medium">{avg.toFixed(1)}</span>
+        {trend > 0 && <TrendingUp className="h-3 w-3 text-green-500" />}
+        {trend < 0 && <TrendingDown className="h-3 w-3 text-red-500" />}
+        {trend === 0 && ratings.length > 1 && <Minus className="h-3 w-3 text-ink-muted" />}
+      </div>
+    </div>
+  )
+}
+
 // Minister Card Component
 function MinisterCard({
   minister,
@@ -305,6 +386,7 @@ function MinisterCard({
   onChange,
   onArchive,
   onDelete,
+  ratings,
 }: {
   minister: Minister
   index: number
@@ -313,6 +395,7 @@ function MinisterCard({
   onChange: (id: string, field: string, value: any) => void
   onArchive: (id: string) => void
   onDelete: (id: string) => void
+  ratings: RatingHistory[]
 }) {
   const isPM = minister.role === 'Synthesizer'
   const isOpposition = minister.role === 'Skeptic'
@@ -341,6 +424,12 @@ function MinisterCard({
           </div>
         </div>
         <div className="flex items-center gap-4">
+          {/* Rating Sparkline */}
+          {ratings.length > 0 && (
+            <div onClick={(e) => e.stopPropagation()}>
+              <RatingSparkline ratings={ratings} />
+            </div>
+          )}
           <span className="body-sans text-xs text-ink-muted">{minister.model_name}</span>
           <Switch
             checked={minister.is_enabled}
@@ -451,6 +540,64 @@ function MinisterCard({
                   className="bg-marble border-stone-dark text-ink w-24"
                 />
               </div>
+
+              {/* Rating History */}
+              {ratings.length > 0 && (
+                <div>
+                  <label className="body-sans text-xs text-ink-muted uppercase tracking-wider block mb-2">
+                    <Star className="h-3 w-3 inline mr-1" />
+                    Approval History ({ratings.length} sessions)
+                  </label>
+                  <div className="bg-marble border border-stone-dark rounded-lg p-3">
+                    {/* Stats Summary */}
+                    <div className="grid grid-cols-4 gap-4 mb-3 text-center">
+                      <div>
+                        <div className="body-sans text-lg font-medium text-ink">
+                          {(ratings.reduce((s, r) => s + r.rating, 0) / ratings.length).toFixed(1)}
+                        </div>
+                        <div className="body-sans text-xs text-ink-muted">Avg Rating</div>
+                      </div>
+                      <div>
+                        <div className="body-sans text-lg font-medium text-green-600">
+                          {ratings.filter(r => r.rating >= 4).length}
+                        </div>
+                        <div className="body-sans text-xs text-ink-muted">High (4-5)</div>
+                      </div>
+                      <div>
+                        <div className="body-sans text-lg font-medium text-yellow-600">
+                          {ratings.filter(r => r.rating === 3).length}
+                        </div>
+                        <div className="body-sans text-xs text-ink-muted">Neutral (3)</div>
+                      </div>
+                      <div>
+                        <div className="body-sans text-lg font-medium text-red-600">
+                          {ratings.filter(r => r.rating <= 2).length}
+                        </div>
+                        <div className="body-sans text-xs text-ink-muted">Low (1-2)</div>
+                      </div>
+                    </div>
+                    
+                    {/* Recent Ratings List */}
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {ratings.slice(-5).reverse().map((r) => (
+                        <div key={r.id} className="flex items-center justify-between text-xs py-1 border-b border-stone/50 last:border-0">
+                          <span className="text-ink-muted truncate max-w-[60%]">
+                            {r.brief_title || 'Session'}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star
+                                key={star}
+                                className={`h-3 w-3 ${star <= r.rating ? 'fill-gold text-gold' : 'text-stone-dark'}`}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Actions */}
               <div className="flex items-center gap-2 pt-2">
