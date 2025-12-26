@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Navbar } from '@/components/common/Navbar'
-import { User, Mail, Lock, Save, Loader2, Check } from 'lucide-react'
+import { Loader2, Check } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 export default function AccountPage() {
@@ -12,7 +12,7 @@ export default function AccountPage() {
   const supabase = createClient()
   
   const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<{ display_name: string }>({ display_name: '' })
+  const [displayName, setDisplayName] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -33,8 +33,8 @@ export default function AccountPage() {
         .eq('id', user.id)
         .single()
 
-      if (profileData) {
-        setProfile({ display_name: profileData.display_name || '' })
+      if (profileData?.display_name) {
+        setDisplayName(profileData.display_name)
       }
       setIsLoading(false)
     }
@@ -45,21 +45,16 @@ export default function AccountPage() {
     setIsSaving(true)
     setMessage(null)
     try {
-      // Try update first, then insert if profile doesn't exist
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ display_name: profile.display_name })
+        .update({ display_name: displayName })
         .eq('id', user.id)
 
       if (updateError) {
-        // If update fails (no row), try insert
         const { error: insertError } = await supabase
           .from('profiles')
-          .insert({ id: user.id, display_name: profile.display_name })
-        
-        if (insertError) {
-          throw insertError
-        }
+          .insert({ id: user.id, display_name: displayName })
+        if (insertError) throw insertError
       }
       
       setSaved(true)
@@ -73,121 +68,102 @@ export default function AccountPage() {
   const handleChangePassword = async () => {
     setMessage(null)
     const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-      redirectTo: `${window.location.origin}/auth/set-password`,
+      redirectTo: `${window.location.origin}/auth/reset-password`,
     })
     if (error) {
       setMessage({ type: 'error', text: error.message })
     } else {
-      setMessage({ type: 'success', text: 'Check your email for the password reset link!' })
+      setMessage({ type: 'success', text: 'Password reset link sent to your email' })
     }
   }
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-marble flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-ink-muted" />
+        <Loader2 className="h-6 w-6 animate-spin text-ink-muted" />
       </div>
     )
   }
 
   return (
     <div className="min-h-screen bg-marble">
-      <Navbar userEmail={user?.email} userName={profile.display_name} />
+      <Navbar userEmail={user?.email} userName={displayName} />
 
-      <main className="max-w-2xl mx-auto px-6 py-16">
+      <main className="max-w-lg mx-auto px-6 py-12">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <h1 className="heading-display text-4xl text-ink mb-2">Account Settings</h1>
-          <p className="body-sans text-ink-muted mb-12">Manage your profile and preferences</p>
+          <h1 className="heading-serif text-2xl text-ink mb-8">Account</h1>
 
-          {/* Profile Section */}
-          <section className="mb-12">
-            <h2 className="heading-serif text-lg text-ink mb-6 flex items-center gap-3">
-              <User className="h-5 w-5 text-wine" />
-              Profile
-            </h2>
-            <div className="bg-card border border-stone-dark rounded-lg p-6 space-y-6">
-              <div>
-                <label className="block body-sans text-sm text-ink-muted mb-2">Display Name</label>
+          {/* Single Card */}
+          <div className="bg-white border border-stone-dark/50 rounded-xl divide-y divide-stone-dark/30">
+            
+            {/* Display Name */}
+            <div className="p-5">
+              <label className="block body-sans text-xs text-ink-muted uppercase tracking-wide mb-2">
+                Display Name
+              </label>
+              <div className="flex gap-3">
                 <input
                   type="text"
-                  value={profile.display_name}
-                  onChange={(e) => setProfile({ ...profile, display_name: e.target.value })}
-                  placeholder="Enter your name"
-                  className="w-full px-4 py-3 bg-marble border border-stone-dark rounded-lg body-sans text-ink placeholder:text-ink-muted focus:outline-none focus:border-wine/50 transition-colors"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Your name"
+                  className="flex-1 px-3 py-2 bg-marble border border-stone-dark rounded-lg body-sans text-sm text-ink placeholder:text-ink-muted focus:outline-none focus:border-wine/50"
                 />
-              </div>
-              <div className="flex justify-end">
                 <button
                   onClick={handleSaveProfile}
                   disabled={isSaving}
-                  className="px-6 py-2 bg-wine text-white rounded-lg body-sans text-sm hover:bg-wine-light transition-colors flex items-center gap-2"
+                  className="px-4 py-2 bg-ink text-white rounded-lg body-sans text-sm hover:bg-ink/90 transition-colors disabled:opacity-50 flex items-center gap-2 min-w-[80px] justify-center"
                 >
                   {isSaving ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : saved ? (
-                    <Check className="h-4 w-4" />
+                    <><Check className="h-4 w-4" /> Saved</>
                   ) : (
-                    <Save className="h-4 w-4" />
+                    'Save'
                   )}
-                  {saved ? 'Saved!' : 'Save Changes'}
                 </button>
               </div>
             </div>
-          </section>
 
-          {/* Email Section */}
-          <section className="mb-12">
-            <h2 className="heading-serif text-lg text-ink mb-6 flex items-center gap-3">
-              <Mail className="h-5 w-5 text-wine" />
-              Email
-            </h2>
-            <div className="bg-card border border-stone-dark rounded-lg p-6">
-              <p className="body-sans text-ink">{user?.email}</p>
-              <p className="body-sans text-sm text-ink-muted mt-1">
-                Your email is used for sign-in and notifications
-              </p>
+            {/* Email */}
+            <div className="p-5">
+              <label className="block body-sans text-xs text-ink-muted uppercase tracking-wide mb-2">
+                Email
+              </label>
+              <p className="body-sans text-sm text-ink">{user?.email}</p>
             </div>
-          </section>
 
-          {/* Password Section */}
-          <section className="mb-12">
-            <h2 className="heading-serif text-lg text-ink mb-6 flex items-center gap-3">
-              <Lock className="h-5 w-5 text-wine" />
-              Password
-            </h2>
-            <div className="bg-card border border-stone-dark rounded-lg p-6">
-              <p className="body-sans text-sm text-ink-muted mb-4">
-                Set or change your password for quick sign-in
-              </p>
+            {/* Password */}
+            <div className="p-5">
+              <label className="block body-sans text-xs text-ink-muted uppercase tracking-wide mb-2">
+                Password
+              </label>
               <button
                 onClick={handleChangePassword}
-                className="px-6 py-2 border border-stone-dark rounded-lg body-sans text-sm text-ink hover:border-wine/50 hover:text-wine transition-colors"
+                className="body-sans text-sm text-wine hover:underline"
               >
-                Change Password
+                Change password
               </button>
             </div>
-          </section>
+          </div>
 
           {/* Messages */}
           {message && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`p-4 rounded-lg body-sans text-sm ${
-                message.type === 'success'
-                  ? 'bg-approve/10 text-approve border border-approve/20'
-                  : 'bg-wine/10 text-wine border border-wine/20'
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className={`mt-4 body-sans text-sm ${
+                message.type === 'success' ? 'text-green-600' : 'text-red-600'
               }`}
             >
               {message.text}
-            </motion.div>
+            </motion.p>
           )}
         </motion.div>
       </main>
     </div>
   )
 }
-
