@@ -28,7 +28,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${cormorant.variable} ${inter.variable} antialiased`}>
+      <body className={`${cormorant.variable} ${inter.variable} antialiased pb-20 md:pb-0`}>
         {children}
       </body>
     </html>
