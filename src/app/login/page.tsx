@@ -24,6 +24,17 @@ function LoginForm() {
   const nextPath = searchParams.get('next') || '/'
   const errorParam = searchParams.get('error')
 
+  // Check if user is already logged in
+  useEffect(() => {
+    async function checkSession() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        router.replace(nextPath)
+      }
+    }
+    checkSession()
+  }, [supabase, router, nextPath])
+
   useEffect(() => {
     if (errorParam === 'auth_failed') {
       setMessage({ type: 'error', text: 'Authentication failed. Please try again.' })
@@ -37,7 +48,7 @@ function LoginForm() {
     setIsLoading(true)
     setMessage(null)
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error) {
       if (error.message.includes('Invalid login credentials')) {
@@ -46,10 +57,35 @@ function LoginForm() {
         setMessage({ type: 'error', text: error.message })
       }
       setIsLoading(false)
-    } else {
-      // Redirect immediately - don't wait for anything
-      router.replace(nextPath)
+      return
     }
+
+    // Wait a moment for cookies to be set, then verify session
+    await new Promise(resolve => setTimeout(resolve, 100))
+    
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError) {
+      console.error('Session error:', sessionError)
+      setMessage({ type: 'error', text: 'Failed to verify session. Please try again.' })
+      setIsLoading(false)
+      return
+    }
+    
+    if (!session) {
+      console.error('No session after login')
+      // Try one more time after a longer delay
+      await new Promise(resolve => setTimeout(resolve, 500))
+      const { data: { session: retrySession } } = await supabase.auth.getSession()
+      if (!retrySession) {
+        setMessage({ type: 'error', text: 'Session not created. Please try again.' })
+        setIsLoading(false)
+        return
+      }
+    }
+
+    console.log('Login successful, redirecting to:', nextPath)
+    // Use window.location for a full page reload to ensure cookies are set
+    window.location.href = nextPath
   }
 
   const handleMagicLink = async (e: React.FormEvent) => {
@@ -108,10 +144,28 @@ function LoginForm() {
     if (error) {
       setMessage({ type: 'error', text: 'Invalid or expired code. Please try again.' })
       setIsLoading(false)
-    } else {
-      // Redirect immediately
-      router.replace(nextPath)
+      return
     }
+
+    // Verify session is set before redirecting
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError) {
+      console.error('Session error:', sessionError)
+      setMessage({ type: 'error', text: 'Failed to verify session. Please try again.' })
+      setIsLoading(false)
+      return
+    }
+    
+    if (!session) {
+      console.error('No session after OTP verification')
+      setMessage({ type: 'error', text: 'Session not created. Please try again.' })
+      setIsLoading(false)
+      return
+    }
+
+    console.log('OTP verification successful, redirecting to:', nextPath)
+    // Use window.location for a full page reload to ensure cookies are set
+    window.location.href = nextPath
   }
 
   const handleSetPassword = async (e: React.FormEvent) => {
