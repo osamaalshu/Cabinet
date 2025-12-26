@@ -300,11 +300,13 @@ function BriefDetailPageContent({ params }: { params: Promise<{ id: string }> })
         setActiveMinisterId(minister.id)
         const currentTurn = turnIndex++
         const result = await runTurn(session.access_token, minister.id, 'opening', currentTurn)
+        console.log(`Opening statement result for ${minister.name}:`, result)
         // Skip if minister was not found
         if (!result) continue
         
         // Extract content - prioritize result.content, fall back to message.content
         const content = result.content || result.message?.content || '[No response received]'
+        console.log(`Extracted content for ${minister.name}:`, content)
         openingStatements.push({ minister, content, vote: result.vote })
         
         // Ensure message has content
@@ -856,7 +858,9 @@ function TranscriptMessage({ message, memberName, isActive }: {
           </span>
         )}
       </div>
-      <p className="body-sans text-sm text-ink-muted">{displayContent}</p>
+      <p className="body-sans text-sm text-ink-muted">
+        {displayContent || <span className="italic text-ink-muted/50">[Loading response...]</span>}
+      </p>
     </motion.div>
   )
 }
