@@ -43,17 +43,30 @@ export async function runMinister(minister: Minister, context: BriefContext, pre
     const modelName = minister.model_name || 'gpt-4o-mini'
     const isGpt5 = modelName.startsWith('gpt-5') || modelName.startsWith('o1') || modelName.startsWith('o3')
     
-    const response = await openai.chat.completions.create({
-      model: modelName,
-      messages: [
-        { role: 'system', content: minister.system_prompt },
-        { role: 'user', content: prompt },
-      ],
-      ...(isGpt5 ? {} : { temperature: minister.temperature || 0.7 }),
-      response_format: { type: 'json_object' },
-    }, { timeout: 7000 })
-
-    const content = response.choices[0].message.content
+    let content: string | null = null
+    
+    if (isGpt5) {
+      // GPT-5 uses Responses API
+      const fullPrompt = `${minister.system_prompt}\n\n${prompt}`
+      const response = await openai.responses.create({
+        model: modelName,
+        input: fullPrompt,
+      })
+      content = response.output_text
+    } else {
+      // GPT-4 uses Chat Completions API
+      const response = await openai.chat.completions.create({
+        model: modelName,
+        messages: [
+          { role: 'system', content: minister.system_prompt },
+          { role: 'user', content: prompt },
+        ],
+        temperature: minister.temperature || 0.7,
+        response_format: { type: 'json_object' },
+      }, { timeout: 7000 })
+      content = response.choices[0].message.content
+    }
+    
     if (!content) throw new Error('No content returned from OpenAI')
 
     return JSON.parse(content)
@@ -97,17 +110,30 @@ export async function runPrimeMinister(
   const pmModelName = pmMinister.model_name || 'gpt-4o-mini'
   const isPmGpt5 = pmModelName.startsWith('gpt-5') || pmModelName.startsWith('o1') || pmModelName.startsWith('o3')
   
-  const response = await openai.chat.completions.create({
-    model: pmModelName,
-    messages: [
-      { role: 'system', content: pmMinister.system_prompt },
-      { role: 'user', content: prompt },
-    ],
-    ...(isPmGpt5 ? {} : { temperature: pmMinister.temperature || 0.7 }),
-    response_format: { type: 'json_object' },
-  }, { timeout: 7000 })
-
-  const content = response.choices[0].message.content
+  let content: string | null = null
+  
+  if (isPmGpt5) {
+    // GPT-5 uses Responses API
+    const fullPrompt = `${pmMinister.system_prompt}\n\n${prompt}`
+    const response = await openai.responses.create({
+      model: pmModelName,
+      input: fullPrompt,
+    })
+    content = response.output_text
+  } else {
+    // GPT-4 uses Chat Completions API
+    const response = await openai.chat.completions.create({
+      model: pmModelName,
+      messages: [
+        { role: 'system', content: pmMinister.system_prompt },
+        { role: 'user', content: prompt },
+      ],
+      temperature: pmMinister.temperature || 0.7,
+      response_format: { type: 'json_object' },
+    }, { timeout: 7000 })
+    content = response.choices[0].message.content
+  }
+  
   if (!content) throw new Error('No content returned from OpenAI')
 
   return JSON.parse(content)
